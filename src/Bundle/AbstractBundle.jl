@@ -23,5 +23,4 @@ abstract type AbstractSoftBundle <: AbstractBundle end
 
 struct SoftBundleFactory <: AbstractBundleFactory end
 struct tLearningBundleFactory <: AbstractBundleFactory end
-struct BatchedSoftBundleFactory <: AbstractBundleFactory end
 struct VanillaBundleFactory <: AbstractBundleFactory end

@@ -24,10 +24,10 @@ function (l::InnerLoss)(params)
 	h, y = l.x, l.y
 	first = 1
 	for i in 1:(length(l.layers)-1)
-		W = copy(reshape(params[first:(first+prod(l.layers[i:i+1])-1)], l.layers[i:i+1]...))
+		W = reshape(params[first:(first+prod(l.layers[i:i+1])-1)], l.layers[i:i+1]...)
 		first += prod(l.layers[i:i+1]) - 1
-		b = copy(params[first:first+l.layers[i+1]-1])
-		h = copy(sigmoid.(W' * h .+ b))
+		b = params[first:first+l.layers[i+1]-1]
+		h = sigmoid.(W' * h .+ b)
 		first += l.layers[i+1]
 	end
 	ŷ = h
@@ -72,4 +72,17 @@ In practice it corresponds to the size of the parameters of the 'hidden' network
 """
 function sizeInputSpace(l::InnerLoss)
 	return sum([prod(l.layers[i:i+1]) + l.layers[i+1] for i in 1:length(l.layers)-1])
+end
+
+function numberSP(l::InnerLoss)
+	return 1
+end
+
+
+"""
+Given an `AbstractConcaveFunction` `ϕ` and an input vector `z` for the former, this function computes the value and a sub-gradient for `ϕ(z)`.
+"""
+function value_gradient(ϕ::InnerLoss,z::AbstractArray)
+    obj,grad=Flux.withgradient((x)->ϕ(x),device(z))
+    return device(obj), device(grad[1])
 end
