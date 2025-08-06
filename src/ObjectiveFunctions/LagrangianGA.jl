@@ -54,6 +54,10 @@ function ChainRulesCore.rrule(ϕ::LagrangianFunctionGA, z::AbstractArray)
 	return -device(obj/ϕ.rescaling_factor), loss_pullback
 end
 
+function numberSP(ϕ::LagrangianFunctionGA)
+    return ϕ.inst.I
+end
+
 
 """
 Size of the inputs of the function `ϕ` of type `LagrangianFunctionGA`.

@@ -167,7 +167,7 @@ function main(args)
 	h_act = (parsed_args["h_act"] == "softplus") ? softplus : (parsed_args["h_act"] == "tanh" ? tanh : (parsed_args["h_act"] == "gelu" ? gelu : relu))
 	sampling_θ = parsed_args["sampling_gamma"]
 	sampling_t = parsed_args["sampling_t"]
-	act= contains(folder,"GA") ? relu : identity
+	act = contains(folder,"GA") ? relu : identity
 
 	reduced_components = parsed_args["reduced_components"]
 	distribution_function = use_softmax ? softmax : (BundleNetworks.sparsemax)
@@ -274,10 +274,10 @@ function main(args)
 			last = batch_size
 			for it_idx in 1:ceil(mti / batch_size)
 				sample = batched_trainset[first:last]
-				idx = batch_size > 1 || a_b ? [s[1] for s in sample] : sample[1][1]
-				ϕ = batch_size > 1 || a_b ? [s[2] for s in sample] : sample[1][2]
-				z = batch_size == 1 && !a_b ? zeros(prod(sizeInputSpace(ϕ))) : [zeros(prod(sizeInputSpace(ϕi))) for ϕi in ϕ]
-				bt = batch_size == 1 && !a_b ? SoftBundleFactory() : BatchedSoftBundleFactory()
+				idx =  [s[1] for s in sample] 
+				ϕ =  [s[2] for s in sample] 
+				z = [zeros(prod(sizeInputSpace(ϕi))) for ϕi in ϕ]
+				bt = SoftBundleFactory()
 				B = BundleNetworks.initializeBundle(bt, ϕ, z, factory, maxIt + 1,reduced_components)
 				B.maxIt = incremental ? min(2 * it * maxIt / maxEp, maxIt) : maxIt
 
@@ -339,10 +339,10 @@ function main(args)
 			last = batch_size
 			for it_idx in 1:ceil(mvi / batch_size)
 				sample = batched_valset[first:last]
-				idx = batch_size > 1 || a_b ? [s[1] for s in sample] : sample[1][1]
-				ϕ = batch_size > 1 || a_b ? [s[2] for s in sample] : sample[1][2]
-				z = batch_size == 1 && !a_b ? zeros(prod(sizeInputSpace(ϕ))) : [zeros(prod(sizeInputSpace(ϕi))) for ϕi in ϕ]
-				bt = batch_size == 1 && !a_b ? SoftBundleFactory() : BatchedSoftBundleFactory()
+				idx = [s[1] for s in sample]
+				ϕ = [s[2] for s in sample]
+				z = [zeros(prod(sizeInputSpace(ϕi))) for ϕi in ϕ]
+				bt =  SoftBundleFactory() 
 				B = BundleNetworks.initializeBundle(bt, ϕ, z, factory, max(maxIt, maxItVal) + 1,reduced_components)
 				B.maxIt = max(maxIt, maxItVal)
 				BundleNetworks.reset!(nn_val, max(1, last - first + 1))

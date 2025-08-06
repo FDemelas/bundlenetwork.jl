@@ -90,7 +90,7 @@ function main(args)
 			ϕ = BundleNetworks.constructFunction(ins, 1.0)
 			_, g = BundleNetworks.value_gradient(ϕ, zeros(sizeInputSpace(ϕ)))
 			ϕ = [BundleNetworks.constructFunction(ins, sqrt(sum(g .* g)))]
-			B = BundleNetworks.initializeBundle(BundleNetworks.BatchedSoftBundleFactory(), ϕ, [zeros(sizeK(ins) * sizeV(ins))], factory, maxIt + 1)
+			B = BundleNetworks.initializeBundle(BundleNetworks.SoftBundleFactory(), ϕ, [zeros(sizeK(ins) * sizeV(ins))], factory, maxIt + 1)
 
 			B.maxIt = maxIt+1
 			BundleNetworks.reset!(nn, 1, maxIt+1)

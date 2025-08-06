@@ -5,149 +5,20 @@ struct AttentionModelFactory <: AbstractDirectionAndTModelFactory
 
 end
 
-"""
-Create the features vector for a model of type `AttentionModelFactory` using the informations contained in the bundle `B`.
-`B` should be of type `SoftBundle`.
-"""
-function create_features(lt::AttentionModelFactory, B::SoftBundle; auxiliary = 0)
-	t = sum(B.t)
-	obj = cpu(B.obj)
-	θ = cpu(B.θ)[1:end]
-	α = cpu(B.α[1:B.size])
-	i, s, e = 1, 1, length(B.w)
-	lp = sum(α[1:length(θ)]' * θ)
-	qp = sum(B.w' * B.w)
-
-	zz = cpu(B.z[:, :]' * B.z[:, B.size])
-	zsz = cpu(B.z[:, :]' * B.z[:, B.s])
-	gg = cpu(B.G[:, :]' * B.G[:, B.size])
-	gsg = cpu(B.G[:, :]' * B.G[:, B.s])
-
-	ϕ = Float32[t,
-		qp,
-		t*qp,
-		lp,
-		qp>lp,
-		10000*qp>lp,
-		obj[B.li],
-		obj[B.s],
-		obj[B.li]<obj[B.s],
-		B.li,
-		α[B.s],
-		α[B.li],
-		sum(sqrt(zz[B.li]) / 2),
-		sum(sqrt(zsz[B.s]) / 2),
-		sum(sqrt(gsg[B.s]) / 2),
-		sum(sqrt(gg[B.li]) / 2),
-	]
-
-	ϕγ = Float32[mean(B.G[:, B.li]),
-		mean(B.z[:, B.li]),
-		std(B.G[:, B.li]),
-		std(B.z[:, B.li]),
-		minimum(B.G[:, B.li]),
-		minimum(B.z[:, B.li]),
-		maximum(B.G[:, B.li]),
-		maximum(B.z[:, B.li]),
-		minimum(zz),
-		minimum(zsz),
-		minimum(gsg),
-		minimum(gg),
-		B.G[:, B.li]'*B.w,
-		maximum(zz),
-		maximum(zsz),
-		maximum(gsg),
-		maximum(gg),
-		B.G[:, B.s]'*B.w,
-		α[B.li],
-		obj[B.li]]
-	return device(ϕ), device(ϕγ)
-end
-
-
-
-"""
-Create the features vector for a model of type `AttentionModelFactory` using the informations contained in the bundle `B`.
-`B` should be of type `BatchedSoftBundle`.
-"""
-function create_features(lt::AttentionModelFactory, B::BatchedSoftBundle; auxiliary = 0)
-	let feat_t, feat_theta
-		t = B.t
-		mli = 1
-		obj = B.obj[:, 1:B.size]
-		α = B.α[:, 1:B.size]
-		for (i, (s, e)) in enumerate(B.idxComp)
-			θ = cpu(reshape(B.θ[i, :], :))
-			lp = α[i, 1:length(θ)]' * θ
-
-			zz = cpu(B.z[s:e, B.li]' * B.z[s:e, mli:B.size])
-			zsz = cpu(B.z[s:e, B.s[i]]' * B.z[s:e, mli:B.size])
-			gg = cpu(B.G[s:e, B.li]' * B.G[s:e, mli:B.size])
-			gsg = cpu(B.G[s:e, B.s[i]]' * B.G[s:e, mli:B.size])
-			ww = B.w[s:e]' * B.w[s:e]
-
-			ϕ = Float32[t[i],
-				ww,
-				t[i]*ww,
-				lp,
-				ww>lp,
-				10000*ww>lp,
-				obj[i, B.li],
-				obj[i, B.s[i]],
-				obj[i, B.li]<obj[i, B.s[i]],
-				B.li,
-				α[i, B.s[i]],
-				α[i, B.li],
-				sqrt(sum(zz[B.li]))/2,
-				sqrt(sum(zsz[B.s[i]]) / 2),
-				sqrt(sum(gsg[B.s[i]]) / 2),
-				sqrt(sum(gg[B.li]) / 2),
-			]
-			ϕγ = Float32[mean(B.G[s:e, B.li]),
-				mean(B.z[s:e, B.li]),
-				std(B.G[s:e, B.li]),
-				std(B.z[s:e, B.li]),
-				minimum(B.G[s:e, B.li]),
-				minimum(B.z[s:e, B.li]),
-				maximum(B.G[s:e, B.li]),
-				maximum(B.z[s:e, B.li]),
-				minimum(zz),
-				minimum(zsz),
-				minimum(gsg),
-				minimum(gg),
-				B.G[s:e, B.li]'*B.w[s:e],
-				maximum(zz),
-				maximum(zsz),
-				maximum(gsg),
-				maximum(gg),
-				B.G[s:e, B.s[i]]'*B.w[s:e],
-				α[i, B.li],
-				obj[i, B.li]]
-			if i == 1
-				feat_t, feat_theta = ϕ, ϕγ
-			else
-				feat_theta = hcat(feat_theta, ϕγ)
-				feat_t = hcat(feat_t, ϕ)
-			end
-
-		end
-		return feat_t, feat_theta
-	end
-end
 
 """
 Size of the features vector for each component of the Bundle.
 It is associated to the last component added in the Bundle.
 """
 function size_comp_features(lt::AttentionModelFactory)
-	return 20
+	return 15
 end
 
 """
 Size of the features vector for the parameter t.
 """
 function size_features(lt::AttentionModelFactory)
-	return 16
+	return 42
 end
 
 mutable struct AttentionModel <: AbstractModel
@@ -158,14 +29,12 @@ mutable struct AttentionModel <: AbstractModel
 	rng::MersenneTwister #random number generator
 	sample_t::Bool # if true sample hidden representation of t, otherwhise take the mean (i.e. no sampling)
 	sample_γ::Bool# if true sample hidden representation of keys and queries, otherwhise take the mean (i.e. no sampling)
-	Ks::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # matrix og keys
-	μs::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # random normal matrix that stock the means of keys and queries before the sampling. Useful only if log_trick is true 
-	σs::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # random normal matrix that stock the variances of keys and queries before the sampling. Useful only if log_trick is true 
-	ϵs::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # random normal matrix that stock the random part of the sampling. Useful only if log_trick is true
 	rescaling_factor::Int64 # rescaling_factor for the output γs (unused for the moment)
-	log_trick::Bool # if true use the log_trick regularization. Note: for the moment it is not implemented
 	h_representation::Int64 # size of hidden representations
 	it::Int64 # iteration counter
+	h3_representations::Bool # if true use three indipendent hidden representations instead of one
+	repeated::Bool # if true recompute the inputs for all the previous iterations
+	Ks::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 3, CUDA.DeviceMemory}} # matrix og keys
 end
 
 """
@@ -180,12 +49,9 @@ function reset!(m::AttentionModel, bs::Int = 1, it::Int = 500)
 	Flux.reset!(m.decoder_γk)
 	Flux.reset!(m.decoder_γq)
 
-	# reinitialization of the keys matrix
-	m.Ks = Zygote.bufferfrom(device(zeros(Float32, bs * m.h_representation, it)))#[]
-	# if log_tricks is true reinitialize the matrix used to store random part, mean and variance of keys and queries
-	m.μs = Zygote.bufferfrom(device(zeros(Float32, 2 * m.h_representation * bs, it)))#[]
-	m.σs = Zygote.bufferfrom(device(zeros(Float32, 2 * m.h_representation * bs, it)))#[]
-	m.ϵs = Zygote.bufferfrom(device(zeros(Float32, 2 * m.h_representation * bs, it)))#[]
+	if !m.repeated
+		m.Ks = Zygote.bufferfrom(device(zeros(Float32, bs ,  m.h_representation, it)))#[]
+	end
 	# reset iteration counter to 1
 	m.it = 1
 end
@@ -198,61 +64,61 @@ The inputs are:
 """
 function (m::AttentionModel)(xt, xγ, idx, comps)
 	# append the features for t and for γs
-	x = vcat(xt, xγ)
+	x = cat(xt,xγ;dims=1)#ndims(xt))
 
 	# encode the full hidden representation
 	h = m.encoder(x)
 	# divide the hidden representation in mean and variance for t,the query and the key
-	μ, σ2, μ_hki, σ_hki, μ_hqi, σ_hqi = Flux.MLUtils.chunk(h, 6, dims = 1)
+	μ, σ2 = Flux.MLUtils.chunk(h, 2, dims = 1)
 
 	#construct the values to sample the hidden representation of t 
 	σ2 = 2.0f0 .- softplus.(2.0f0 .- σ2)
 	σ2 = -6.0f0 .+ softplus.(σ2 .+ 6.0f0)
 	σ2 = exp.(σ2)
 	sigma = sqrt.(σ2 .+ 1)
-	ϵ = device(randn(m.rng, Float32, size(μ)))
 
+	μt,μk,μq = m.h3_representations ? copy.(Flux.MLUtils.chunk(μ, 3, dims = 1)) : (copy(μ) ,copy(μ) ,copy(μ))
+	σt,σk,σq = m.h3_representations ? Flux.MLUtils.chunk(sigma, 3, dims = 1) : (sigma,sigma,sigma)
+
+	# create the random component for the sample of the time
+    ϵt,ϵk,ϵq =  device(randn(m.rng, Float32, size(μt))), device(randn(m.rng, Float32, size(μk))), device(randn(m.rng, Float32, size(μq)))
+	
 	# sample the hidden representation of t and then give it as input to the decoder to compute t
-	t = m.decoder_t(m.sample_t ? μ .+ ϵ .* sigma : μ)
-
-	# create the random component for the sample of the key
-	ϵk = device(randn(m.rng, Float32, size(μ_hki)))
-
-	# create the random component for the sample of the query
-	ϵq = device(randn(m.rng, Float32, size(μ_hqi)))
-
-	# create the variances for the sample of the key
-	σ2 = 2.0f0 .- softplus.(2.0f0 .- σ_hqi)
-	σ2 = -6.0f0 .+ softplus.(σ2 .+ 6.0f0)
-	σ2 = exp.(σ2)
-	σ_hqi = sqrt.(σ2 .+ 1)
-
-	# create the variances for the sample of the query
-	σ2 = 2.0f0 .- softplus.(2.0f0 .- σ_hki)
-	σ2 = -6.0f0 .+ softplus.(σ2 .+ 6.0f0)
-	σ2 = exp.(σ2)
-	σ_hki = sqrt.(σ2 .+ 1)
-
+	t = m.decoder_t(m.sample_t ? μt .+ ϵt .* σt : μt )
 	# sample the hidden representation of the key and the query
-	hki = m.decoder_γk(m.sample_γ ? μ_hki + ϵk .* σ_hki : μ_hki)
-	hqi = m.decoder_γq(m.sample_γ ? μ_hqi + ϵq .* σ_hqi : μ_hqi)
+	hk = m.decoder_γk(m.sample_γ ? μk .+ ϵk .* σk : μk )
+	hq = m.decoder_γq(m.sample_γ ? μq .+ ϵq .* σq : μq )
 
-	# add the current hidden representation of the key to the matrix that store all the hidden representations
-	m.Ks[:, idx] = reshape(hki, :)
+	
+	
+	if !m.repeated
+		m.Ks[:, :,idx] = hk
+		
+		# compute the output to predict the new convex combination (after using it as input to a distribution function as softmax or sparsemax)
+		aq = dropdims(hq,dims=2)
+		ak = m.Ks[:, :, comps]
+	
+		# add the current hidden representation of the key to the matrix that store all the hidden representations
+		
+		γs = vcat([aq[:,i]'ak[i,:,:] for i in 1:size(ak,1)]...)
+		return t, γs
+	else
+		# Assume hq and hk are CuArrays of shape (latent, iterations, batch)
+		latent, T, B = size(hq)
 
-	# if log_trick is true than store additional informations
-	if m.log_trick
-		m.μs[:, idx] = vcat(μ_hki, μ_hqi)
-		m.ϵs[:, idx] = vcat(ϵk, ϵq)
-		m.σs[:, idx] = vcat(σ_hki, σ_hqi)
+	
+		# Step 1: Extract hq at the last iteration → shape (latent, 1, batch)
+		hq_last = hq[:, end:end, :]  # keep 3D shape: (latent, 1, B)
+
+		# Step 2: Compute dot products across all hk iterations
+		# We'll use batched_mul: (1, latent, B) × (latent, T, B) → (1, T, B)
+		γs = batched_mul(permutedims(hq_last, (2,1,3)), hk)  # (1, T, B)
+
+		# Step 3: Reshape to (T, B)
+		γs = reshape(γs, B, T)
+
+		return t[:,end:end,:], γs
 	end
-
-	# compute the output to predict the new convex combination (after using it as input to a distribution function as softmax or sparsemax)
-	aq = device(size(hqi, 2) > 1 ? Flux.MLUtils.chunk(hqi, size(hqi, 2); dims = 2) : [hqi])
-	ak = (Flux.MLUtils.chunk(m.Ks[:, comps], Int64(size(m.Ks, 1) / m.h_representation); dims = 1))
-	γs = vcat(map((x, y) -> sum(x'y; dims = 1), aq, ak)...)
-
-	return t, γs
 end
 
 # define `AttentionModel` as a Flux layer
@@ -264,14 +130,16 @@ Function to create an `AttentionModel` given its hyper-parameters.
 function create_NN(
 	lt::AttentionModelFactory;
 	h_act = gelu,
-	h_representation::Int = 32,
+	h_representation::Int = 128,
 	h_decoder::Vector{Int} = [h_representation * 8],
 	seed::Int = 1,
 	norm::Bool = false,
 	sampling_t::Bool = false,
 	sampling_θ::Bool = true,
-	log_trick::Bool = false,
 	ot_act = softplus,
+	rnn = true,
+	h3_representations::Bool = false,
+	repeated::Bool = true
 )
 	bs,it=1,1
 	# possibly a normalization function, but is `norm` is false, then it is the identity
@@ -282,7 +150,7 @@ function create_NN(
 	init = Flux.truncated_normal(Flux.MersenneTwister(seed); mean = 0.0, std = 0.01)
 
 	#the encoder used to predict the hidden space, given the features of the current iteration,
-	encoder = Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => 6 * h_representation))
+	encoder = rnn ? Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => (h3_representations ? 6 : 2) * h_representation)) : Chain(f_norm, Dense(size_features(lt) + size_comp_features(lt) => 2 * h_representation,h_act))
 
 	# construct the decoder that predicts `t` from its hidden representation
 	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
@@ -303,7 +171,7 @@ function create_NN(
 	decoder_γk = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
 
 	#put all together to construct an `AttentionModel`
-	model = AttentionModel(device(encoder), device(decoder_t), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), 1.0, log_trick, h_representation, 1)
+	model = AttentionModel(device(encoder), device(decoder_t), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs , h_representation, it)))))
 	return model
 end
 
@@ -312,4 +180,96 @@ Size of the hidden representation of an `AttentionModel`.
 """
 function h_representation(nn::AttentionModel)
 	return Int64(size(nn.decoder_t[1].weight, 2))
+end
+
+
+
+function create_features( B::SoftBundle, m::AttentionModel; auxiliary = 0)
+    # We'll build two matrices: feat_t (global features) and feat_theta (per-vertex features)
+	comp  = length(B.idxComp) > 1 ? B.idxComp : [(1,length(B.G[:,1]))]
+	batch_size = length(B.idxComp) > 1 ? length(B.idxComp) : 1
+
+	iters = m.repeated ? collect(1:B.size) : [B.li]
+	n_iter = m.repeated ? B.size : 1
+
+    feat_t = zeros(Float32,size_features(B.lt),n_iter,batch_size)
+    feat_theta = zeros(Float32,size_comp_features(B.lt),n_iter,batch_size)
+
+    # Extract some constants once
+    w = B.w
+    zi = B.li
+    si = B.s
+
+    for (i, (s, e)) in enumerate(comp)
+        # 1) scalar/time features
+        ti = B.t[i]
+        # 2) objective and attention slices
+        obj_i = B.obj[i, iters]
+        α_i   = B.α[i, iters]
+        θ_i   = cpu(reshape(B.θ[i, :], :))
+        lp    = B.α[i,1:length(θ_i)]' * θ_i
+
+        # 3) pairwise products on z and G
+        zz  = cpu(B.z[s:e, zi]' * B.z[s:e, iters])
+        zsz = cpu(B.z[s:e, si[i]]' * B.z[s:e, iters])
+        zszs = cpu(B.z[s:e, si[i]]' * B.z[s:e, si[i]])
+        gg  = cpu(B.G[s:e, zi]' * B.G[s:e, iters])
+        gsg = cpu(B.G[s:e, si[i]]' * B.G[s:e, iters])
+		gsgs = cpu(B.G[s:e, si[i]]' * B.G[s:e, si[i]])
+        ww  = (w[s:e]' * w[s:e])[1]   # scalar weight product
+
+		# 4) Build the per-instance feature vector ϕ (Float32)
+        ϕ = Float32[
+            ti,
+            ww,
+            ti * ww,
+            lp,
+            ww > lp,
+            ti*ww > lp,
+            B.obj[i,zi],
+            B.obj[i,si[i]],
+            B.α[i,zi],
+            B.α[i,si[i]],
+            minimum(zz),   minimum(zsz),   minimum(gsg),   minimum(gg),  minimum(zszs),  minimum(gsgs),
+            mean(zz),      mean(zsz),      mean(gsg),      mean(gg),  mean(zszs),  mean(gsgs),
+            (length(zz)==1 ? 0f0 : std(zz)),
+            (length(zsz)==1 ? 0f0 : std(zsz)),
+            (length(gsg)==1 ? 0f0 : std(gsg)),
+            (length(gg)==1   ? 0f0 : std(gg)),
+            (length(zszs)==1 ? 0f0 : std(zszs)),
+            (length(gsgs)==1 ? 0f0 : std(gsgs)),
+            maximum(zz),   maximum(zsz),  maximum(zszs),  maximum(gsgs),  maximum(gsg),   maximum(gg),
+            sqrt(sum(zz))/2,
+            sqrt(sum(zsz))/2,
+            sqrt(sum(gsg))/2,
+            sqrt(sum(gg))/2,  
+            sqrt(sum(zszs))/2,
+            sqrt(sum(gsgs))/2,      
+			sum(B.G[s:e, B.li]'*w[s:e]),
+        	sum(B.G[s:e, si[i]]'*w[s:e]),
+        ]
+
+        # 5) Build the per-vertex feature vector ϕγ (Float32)
+        z_seg = B.z[s:e, iters]
+        G_seg = B.G[s:e, iters]
+		
+		ϕγ = hcat(cpu([
+			mean(G_seg,dims=1)', std(G_seg,dims=1)', minimum(G_seg,dims=1)', maximum(G_seg,dims=1)',
+            mean(z_seg,dims=1)', std(z_seg,dims=1)', minimum(z_seg,dims=1)', maximum(z_seg,dims=1)',
+            B.G[s:e, iters]'*B.w[s:e],
+            α_i,
+            obj_i,
+            obj_i .< B.obj[i,B.li],
+            obj_i .< B.obj[i,si[i]],
+            B.li .== collect(iters),
+            si[i] .== collect(iters)])...)
+      
+        # 6) Stack into matrices
+        feat_t[:,:,i]     .= ϕ
+        feat_theta[:,:,i] = ϕγ'
+        
+    end
+
+    # return in the expected shape: (batch_size × n_features)
+    return device(feat_t), device(feat_theta)
 end

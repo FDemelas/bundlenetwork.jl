@@ -10,7 +10,7 @@ using Random
 using Statistics
 using Zygote
 using CUDA
-import CUDA: CuArray
+import CUDA: CuArray, @ćuda
 import Flux: gpu, cpu
 
 CUDA.set_runtime_version!(v"12.1")
@@ -38,9 +38,7 @@ include("Auxiliary/sparsemax.jl")
 
 include("Models/Deviations.jl")
 
-
 include("Bundle/SoftBundle.jl")
-include("Bundle/BatchedSoftBundle.jl")
 
 include("Models/tAndDirectionModels/AttentionModel.jl")
 
@@ -53,7 +51,7 @@ include("Bundle/tLearningBundle.jl")
 export create_NN
 
 export initializeBundle
-export tLearningBundleFactory,SoftBundleFactory,BatchedSoftBundleFactory,VanillaBundleFactory
+export tLearningBundleFactory,SoftBundleFactory,VanillaBundleFactory
 export solve!
 
 export test_local_retraining,test,training_loop,training_epoch
