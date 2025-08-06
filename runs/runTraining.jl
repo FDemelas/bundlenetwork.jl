@@ -136,6 +136,18 @@ function main(args)
                 arg_type = Int64
                 default = 10
                 help = ""
+		"--repeated"
+		arg_type = Bool
+		default = true
+		help = "If true predictions on all the points are iteratively performed"
+		"--h3"
+		arg_type = Bool
+		default = false
+		help = "Computes 3 hidden representations instead of one (one for t, one for q and one for k)."
+		"--recurrent"
+		arg_type = Bool
+		default = true
+		help = "If true use recurrency to compute the (hidden) representations ."
 	end
 
 	# take the input parameters and construct a Dictionary
@@ -167,6 +179,9 @@ function main(args)
 	h_act = (parsed_args["h_act"] == "softplus") ? softplus : (parsed_args["h_act"] == "tanh" ? tanh : (parsed_args["h_act"] == "gelu" ? gelu : relu))
 	sampling_θ = parsed_args["sampling_gamma"]
 	sampling_t = parsed_args["sampling_t"]
+	h3 = parsed_args["h3"]
+	repeated = parsed_args["repeated"]
+	recurrent = parsed_args["recurrent"]
 	act = contains(folder,"GA") ? relu : identity
 
 	reduced_components = parsed_args["reduced_components"]
@@ -176,7 +191,7 @@ function main(args)
 	format = split(directory[1], ".")[end]
 
 	factory = bgr ? BundleNetworks.AttentionModelFactory() : BundleNetworks.AttentionModelFactory()
-	global nn = BundleNetworks.create_NN(factory; h_representation, h_act, sampling_θ,sampling_t)
+	global nn = BundleNetworks.create_NN(factory; h_representation, h_act, sampling_θ,sampling_t,repeated, h3_representations=h3,rnn=recurrent)
 	nn.h_representation = BundleNetworks.h_representation(nn)
 	BundleNetworks.reset!(nn, batch_size)
 	use_gpu = true
