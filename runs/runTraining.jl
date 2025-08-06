@@ -205,19 +205,38 @@ function main(args)
 		close(f)
 
 	else
-		tmp_idx = 0
-		for f in directory[1:(mti+mvi)]
-			ins, Ld = my_read_dat_json(folder * f)
-			ϕ = BundleNetworks.constructFunction(ins, 1.0)
-			_, g = BundleNetworks.value_gradient(ϕ, zeros(sizeLM(ins)))
-			ϕ = BundleNetworks.constructFunction(ins, sqrt(sum(g .* g)))
-			push!(dataset, (f, ϕ))
-			gold[f] = Ld
-			tmp_idx += 1
-			if tmp_idx % 100 == 0
-				GC.gc()
-				CUDA.reclaim()
-				CUDA.free_memory()
+		if contains(directory[1],"uc")
+			tmp_idx = 0
+			for f in directory[1:(mti+mvi)]
+                                ins = Instances.read_json(folder*f)
+				Ld = 0.0
+				ϕ = BundleNetworks.constructFunction(ins, 1.0)
+                                _, g = BundleNetworks.value_gradient(ϕ, zeros(sizeInputSpace(ϕ)))
+                                ϕ = BundleNetworks.constructFunction(ins, sqrt(sum(g .* g)))
+                                push!(dataset, (f, ϕ))
+                                gold[f] = Ld
+                                tmp_idx += 1
+                                if tmp_idx % 100 == 0
+                                	GC.gc()
+                               		CUDA.reclaim()
+                                	CUDA.free_memory()
+				end
+			end
+		else
+			tmp_idx = 0
+			for f in directory[1:(mti+mvi)]
+				ins, Ld = contains(folder,"GA") ? my_read_ga_json(folder * f) : my_read_dat_json(folder * f)
+				ϕ = BundleNetworks.constructFunction(ins, 1.0)
+				_, g = BundleNetworks.value_gradient(ϕ, zeros(sizeLM(ins)))
+				ϕ = BundleNetworks.constructFunction(ins, sqrt(sum(g .* g)))
+				push!(dataset, (f, ϕ))
+				gold[f] = Ld
+				tmp_idx += 1
+				if tmp_idx % 100 == 0
+					GC.gc()
+					CUDA.reclaim()
+					CUDA.free_memory()
+				end
 			end
 		end
 
@@ -286,7 +305,7 @@ function main(args)
 				BundleNetworks.reinitialize_Bundle!(B)
 				mv = 0.0
 				B.maxIt = incremental ? min(2 * it * maxIt / maxEp, maxIt) : maxIt
-				r_f = (batch_size > 1 || a_b ? sum(sizeE(f.inst) for f in ϕ) : sizeE(ϕ.inst)) * maxIt / (last - first + 1)
+				r_f = (batch_size > 1 || a_b ? sum( (contains(folder,"GA") ? f.inst.I : ( contains(folder,"TUC") ? f.inst.I : sizeE(f.inst))) for f in ϕ ) : contains(folder,"GA") ? ϕ.inst.I :  ( contains(folder,"TUC") ? ϕ.inst.I : sizeE(ϕ.inst)) ) * maxIt / (last - first + 1)
 				vv, grads = Flux.withgradient((m) -> .- BundleNetworks.bundle_execution(B, ϕ, m; soft_updates = soft_updates, λ = lambda, γ = gamma, δ = delta, distribution_function, verbose = 0,inference=false,act) / r_f, nn)
 				vv = -vv
 
@@ -349,7 +368,8 @@ function main(args)
 
 				BundleNetworks.reinitialize_Bundle!(B)
 				t0 = time()
-				r_f = (batch_size > 1 || a_b ? sum(sizeE(f.inst) for f in ϕ) : sizeE(ϕ.inst)) * maxIt / (last - first + 1)
+				#r_f = (batch_size > 1 || a_b ? sum(sizeE(f.inst) for f in ϕ) : sizeE(ϕ.inst)) * maxIt / (last - first + 1)
+				 r_f = (batch_size > 1 || a_b ? sum( (contains(folder,"GA") ? f.inst.I : ( ( contains(folder,"TUC") ? f.inst.I : sizeE(f.inst)))) for f in ϕ) : contains(folder,"GA") ? ϕ.inst.I :  ( contains(folder,"TUC") ?  ϕ.inst.I : sizeE( ϕ.inst))) * maxIt / (last - first + 1)
 				val = BundleNetworks.bundle_execution(B, ϕ, nn_val; soft_updates = soft_updates, λ = lambda, γ = gamma, δ = delta, distribution_function, verbose = 0,inference=false,act) / r_f
 				
 				time_val = time() - t0
@@ -412,6 +432,12 @@ function main(args)
 
 		end
 	end
+
+	BundleNetworks.reset!(nn, 1)
+	BundleNetworks.reset!(nn_best, 1)
+
+
+
 	nn = cpu(nn)
 	nn_best = cpu(nn_best)
 
