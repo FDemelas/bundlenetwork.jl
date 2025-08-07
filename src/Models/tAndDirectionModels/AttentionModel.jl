@@ -150,7 +150,7 @@ function create_NN(
 	init = Flux.truncated_normal(Flux.MersenneTwister(seed); mean = 0.0, std = 0.01)
 
 	#the encoder used to predict the hidden space, given the features of the current iteration,
-	encoder = rnn ? Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => (h3_representations ? 6 : 2) * h_representation)) : Chain(f_norm, Dense(size_features(lt) + size_comp_features(lt) => 2 * h_representation,h_act))
+	encoder = rnn ? Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => (h3_representations ? 6 : 2) * h_representation)) : Chain(f_norm, Dense(size_features(lt) + size_comp_features(lt) => (h3_representations ? 6 : 2) * h_representation,h_act))
 
 	# construct the decoder that predicts `t` from its hidden representation
 	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
