@@ -117,7 +117,7 @@ function (m::AttentionModel)(xt, xγ, idx, comps)
 		# Step 3: Reshape to (T, B)
 		γs = reshape(γs, B, T)
 
-		return t[:,end:end,:], γs
+		return (device == gpu ? cu : identity)(reshape(t[:,end:end,:],1,:)), γs
 	end
 end
 
@@ -186,10 +186,10 @@ end
 
 function create_features( B::SoftBundle, m::AttentionModel; auxiliary = 0)
     # We'll build two matrices: feat_t (global features) and feat_theta (per-vertex features)
-	comp  = length(B.idxComp) > 1 ? B.idxComp : [(1,length(B.G[:,1]))]
 	batch_size = length(B.idxComp) > 1 ? length(B.idxComp) : 1
 
 	iters = m.repeated ? collect(1:B.size) : [B.li]
+	#@show iters
 	n_iter = m.repeated ? B.size : 1
 
     feat_t = zeros(Float32,size_features(B.lt),n_iter,batch_size)
@@ -200,36 +200,35 @@ function create_features( B::SoftBundle, m::AttentionModel; auxiliary = 0)
     zi = B.li
     si = B.s
 
-    for (i, (s, e)) in enumerate(comp)
+    for (i, j) in enumerate(B.idxComp)
         # 1) scalar/time features
-        ti = B.t[i]
+        ti = cpu(B.t)[i]
         # 2) objective and attention slices
-        obj_i = B.obj[i, iters]
-        α_i   = B.α[i, iters]
+        obj_i = cpu(B.obj[1,i, iters])
+        α_i   = cpu(B.α[1,i, iters])
         θ_i   = cpu(reshape(B.θ[i, :], :))
-        lp    = B.α[i,1:length(θ_i)]' * θ_i
+        lp    = cpu(B.α)[1,i,1:length(θ_i)]' * θ_i
 
         # 3) pairwise products on z and G
-        zz  = cpu(B.z[s:e, zi]' * B.z[s:e, iters])
-        zsz = cpu(B.z[s:e, si[i]]' * B.z[s:e, iters])
-        zszs = cpu(B.z[s:e, si[i]]' * B.z[s:e, si[i]])
-        gg  = cpu(B.G[s:e, zi]' * B.G[s:e, iters])
-        gsg = cpu(B.G[s:e, si[i]]' * B.G[s:e, iters])
-		gsgs = cpu(B.G[s:e, si[i]]' * B.G[s:e, si[i]])
-        ww  = (w[s:e]' * w[s:e])[1]   # scalar weight product
+        zz  = cpu(B.z[j,i, zi]' * B.z[j,i, iters])
+        zsz = cpu(B.z[j,i, si[i]]' * B.z[j,i, iters])
+        zszs = cpu(B.z[j,i, si[i]]' * B.z[j,i, si[i]])
+        gg  = cpu(B.G[j,i, zi]' * B.G[j,i, iters])
+        gsg = cpu(B.G[j,i, si[i]]' * B.G[j,i, iters])
+		gsgs = cpu(B.G[j,i, si[i]]' * B.G[j,i, si[i]])
+        ww  = (w[j,i]' * w[j,i])[1]   # scalar weight product
 
-		# 4) Build the per-instance feature vector ϕ (Float32)
-        ϕ = Float32[
+		ϕ = Float32[
             ti,
             ww,
             ti * ww,
             lp,
             ww > lp,
             ti*ww > lp,
-            B.obj[i,zi],
-            B.obj[i,si[i]],
-            B.α[i,zi],
-            B.α[i,si[i]],
+            cpu(B.obj)[1,i,zi],
+            cpu(B.obj)[1,i,si[i]],
+            cpu(B.α)[1,i,zi],
+            cpu(B.α)[1,i,si[i]],
             minimum(zz),   minimum(zsz),   minimum(gsg),   minimum(gg),  minimum(zszs),  minimum(gsgs),
             mean(zz),      mean(zsz),      mean(gsg),      mean(gg),  mean(zszs),  mean(gsgs),
             (length(zz)==1 ? 0f0 : std(zz)),
@@ -245,22 +244,22 @@ function create_features( B::SoftBundle, m::AttentionModel; auxiliary = 0)
             (sum(gg))/2,  
             (sum(zszs))/2,
             (sum(gsgs))/2,      
-			sum(B.G[s:e, B.li]'*w[s:e]),
-        	sum(B.G[s:e, si[i]]'*w[s:e]),
+			sum(B.G[j,i, B.li]'*w[j,i]),
+        	sum(B.G[j,i, si[i]]'*w[j,i]),
         ]
 
         # 5) Build the per-vertex feature vector ϕγ (Float32)
-        z_seg = B.z[s:e, iters]
-        G_seg = B.G[s:e, iters]
+        z_seg = B.z[j,i, iters]
+        G_seg = B.G[j,i, iters]
 		
 		ϕγ = hcat(cpu([
 			mean(G_seg,dims=1)', std(G_seg,dims=1)', minimum(G_seg,dims=1)', maximum(G_seg,dims=1)',
             mean(z_seg,dims=1)', std(z_seg,dims=1)', minimum(z_seg,dims=1)', maximum(z_seg,dims=1)',
-            B.G[s:e, iters]'*B.w[s:e],
+            B.G[j,i, iters]'*B.w[j,i],
             α_i,
             obj_i,
-            obj_i .< B.obj[i,B.li],
-            obj_i .< B.obj[i,si[i]],
+            obj_i .< cpu(B.obj)[1,i,B.li],
+            obj_i .< cpu(B.obj)[1,i,si[i]],
             B.li .== collect(iters),
             si[i] .== collect(iters)])...)
       

@@ -22,7 +22,7 @@ mutable struct SoftBundle <: AbstractSoftBundle
 	li::Int64
 	info::Dict
 	maxIt::Int
-	t::Vector{Float32}
+	t::Any
 	idxComp::AbstractArray
 	size::Int64
 	lis::Vector{Int64}
@@ -41,51 +41,42 @@ function initializeBundle(bt::SoftBundleFactory, ϕs::Vector{<:AbstractConcaveFu
 	B = SoftBundle([], [], [], [-1], [], [], [], Inf, [Inf], [Float32[]], lt, [], 0, 0, [], 1, Dict(), maxIt, zeros(length(ϕs)), [], 1, [1], reduced_components)
 	# the batch size is equal to the number of input functions
 	batch_size = length(ϕs)
-	sLM = []
-	gs, objs, idxComp = [], [], []
-	tmp = 0
+	
+	# Construct a matrix to store the visited points
+	B.z = zeros(Float32, maximum([prod(sizeInputSpace(ϕ)) for ϕ in ϕs]), batch_size,  1)
+	# Construct a matrix to store the linearization errors (as the stabilization point is the only component) all the entries are zero
+	B.α = zeros(Float32, 1, batch_size, 1)
+	# Construct a matrix to store the objective functions
+	B.obj =  zeros(Float32, 1, batch_size, 1)
+	# Construct a matrix to store the gradients of the visited points
+	B.G = zeros(Float32, maximum([prod(sizeInputSpace(ϕ)) for ϕ in ϕs]), batch_size, 1)
+	B.idxComp =	 [ 1:prod(sizeInputSpace(ϕ)) for (idx, ϕ) in enumerate(ϕs)]
 	# Compute objective and sub-gradient in z for all the objectives
 	# reshape gradient to a vector and store all the first and last components
 	# to be able to access at each of those
 	for (idx, ϕ) in enumerate(ϕs)
 		lLM = prod(sizeInputSpace(ϕ))
-		push!(idxComp, (tmp + 1, tmp + lLM))
-		tmp += lLM
-		append!(sLM, prod(lLM))
 		obj, g = value_gradient(ϕ, reshape(z[idx], sizeInputSpace(ϕ)))
-		g = reshape(g, :)
-		append!(objs, obj)
-		append!(gs, g)
+		B.G[1:lLM,idx,1] = reshape(cpu(g), :)
+		B.obj[1,idx,1] = obj
+		B.α[1,idx,1] = 0.0
+		B.z[1:lLM,idx,1] = reshape(z[idx], :)
 	end
 
-	# Construct a matrix to store the visited points
-	B.z = zeros(Float32, sum(sLM), B.maxIt + 1)
-	# Initialize the first column of the former matrix to the initialization point
-	B.z[:, 1] = vcat([zi for zi in z]...)
-	# Construct a matrix to store the linearization errors (as the stabilization point is the only component) all the entries are zero
-	B.α = zeros(Float32, batch_size, B.maxIt + 1)
-	# Construct a matrix to store the gradients of the visited points
-	B.G = zeros(Float32, sum(sLM), B.maxIt + 1)
-	# Initialize the first column of the former matrix to the sub-gradient of the initialization point
-	B.G[:, 1] = gs
-	# Construct a matrix to store the objective functions
-	B.obj = zeros(Float32, batch_size, B.maxIt + 1)
-	# Initialize the first column of the former matrix to the objective value of the initialization point
-	B.obj[:, 1] = objs
-	# The Dual Master Problem objective value 
-	B.objB = gs'gs
+	
 	# The trial direction is simply the first gradient
-	B.w = gs
+	B.w = reshape(B.G,:)
+	# Initialize the first column of the former matrix to the sub-gradient of the initialization point
+	# Construct a matrix to store the objective functions
+	B.objB = B.w'B.w
 	# The DMP solution is straightforward to compute
 	B.θ = ones(batch_size, 1)
-	# a vector of couples to denote the starting and the ending row indexes in the matrices 
-	# to correctly divide 
-	B.idxComp = idxComp
+	
 	# The last inspired component is the only component in the bundle
 	B.li = 1
 	# initialize the stabilization points to the unique Bundle component
 	# for each objective function
-	B.s = ones(length(idxComp))
+	B.s = ones(length(B.idxComp))
 	return B
 end
 
@@ -114,13 +105,14 @@ function reinitialize_Bundle!(B::SoftBundle)
 	B.lis = [1]
 	B.s = ones(length(B.idxComp))
 	# reinitialize the gradient matrix, the visited point matrix, the linearization error matrix and the objective value matrix
-	B.G = Zygote.bufferfrom(device(hcat([B.G[:, 1], zeros(size(B.G, 1), B.maxIt)]...)))
-	B.z = Zygote.bufferfrom(device(hcat([B.z[:, 1], zeros(size(B.z, 1), B.maxIt)]...)))
-	B.α = Zygote.bufferfrom(cpu(hcat(B.α[:, 1], zeros(size(B.α, 1), B.maxIt))))
-	B.obj = Zygote.bufferfrom(cpu(hcat(B.obj[:, 1], zeros(size(B.obj, 1), B.maxIt))))
+	B.G = device(B.G[:, :, 1:1])
+	B.z = device(B.z[:, :, 1:1])
+	B.α = device(B.α[:,:,1:1])
+	B.obj = device(B.obj[:, :, 1:1])
 	# The Dual Master Problem Solution and the new trial direction are straightforwad to compunte (B.w can be actually keeped all zero as unused before new prediction)
 	B.θ = ones(length(B.idxComp), 1)
-	B.w = device(B.G[:, 1])
+	B.w = device(B.G[:,:, 1])
+	B.t = device(zeros(1,length(B.idxComp)))
 end
 
 """
@@ -142,8 +134,8 @@ function bundle_execution(
 	metalearning = false,
 	unstable = false,
 	inference = false,
-	z_bar = Zygote.bufferfrom(Float32.(vcat([B.z[s:e, B.s[i]] for (i, (s, e)) in enumerate(B.idxComp)]...))),
-	z_new = Zygote.bufferfrom(B.z[:, B.li]),
+	z_new = device(B.z[:,:,B.li]),
+	z_bar = device(B.z[:,:,B.li]),
 	act=identity	)
 	# Some global data initialized into inner blocks (as ignore_derivatives() ) should be defined in a more global scope
 	let xt, xγ, z_copy, LR_vec, Baseline, obj_new, obj_bar, g, t0, t1, times, maxIt, t, γs, θ, comps
@@ -158,22 +150,21 @@ function bundle_execution(
 		# initilize some values
 		ignore_derivatives() do
 			# sub-gradient in the current trial-point
-			g = Zygote.bufferfrom(device(zeros(size(B.w))))
+			g = device(zeros(size(B.w)))
 			# objective value in the new trial point
-			obj_new = Zygote.bufferfrom(cpu(B.obj[B.li.*ones(Int64, length(B.s))]))
+			obj_new = cpu(B.obj[1,:,B.li])
 			# objective value in the stabilization point
 			obj_bar = obj_new
 			# output of the model to compute the DMP solution, before applying a distribution function (and so they are real values not still in the simples)
 			# it has the same size of the current bundle components (i.e. number of iterations)
-			γs = Zygote.bufferfrom([device(zeros(length(B.idxComp), it)) for it in 1:maxIt])
-
+			#γs = Zygote.bufferfrom([device(zeros(length(B.idxComp), it)) for it in 1:maxIt])
 			xt = Zygote.bufferfrom([device(zeros(length(B.idxComp),it,size_features(B.lt))) for it in 1:maxIt])
 			xγ = Zygote.bufferfrom([device(zeros(length(B.idxComp),it,size_comp_features(B.lt))) for it in 1:maxIt])
 		
 
 			# approximation of the DMP solution, after applying a distribution function (values between 0-1 in the simplex)
 			# it has the same size of the current bundle components (i.e. number of iterations)
-			θ = Zygote.bufferfrom([device(zeros(length(B.idxComp), it)) for it in 1:maxIt])
+			#θ = Zygote.bufferfrom([device(zeros(length(B.idxComp), it)) for it in 1:maxIt])
 			# value of the Dual Master Problem
 			B.objB = 0
 			# initialization time
@@ -188,7 +179,7 @@ function bundle_execution(
 			# no Back-Propagation here
 			# create features and resize them properly
 			ignore_derivatives() do
-				xt[it], xγ[it] = device(create_features( B, m; auxiliary = featG))
+				xt[it], xγ[it] = create_features( B, m; auxiliary = featG)
 			end
 
 			#features extraction time
@@ -201,8 +192,8 @@ function bundle_execution(
 			end
 
 			# output of the model: step-size t and one value for each bundle component, i.e. γs[it] that has it component
-			t, γs[it] = m(xt[it], xγ[it], B.li, comps[it])
-			B.t = device(reshape(t, :))
+			B.t, γs = m(xt[it], xγ[it], B.li, comps[it])
+			
 
 			# and index that allows to consider all the bundle components (by default as max_inst = + Inf) or just a fixed amount (max_inst < +Inf)
 			min_idx = Int64(max(1, length(comps[it]) - max_inst))
@@ -216,20 +207,21 @@ function bundle_execution(
 			end
 
 			# Compute a simplex vector using the output γs[it] of the model
-			θ[it] = distribution_function(γs[it][:, :]; dims = 2)
+			θ = distribution_function(γs[:, :]; dims = 2)
 			
 			# store it for featurers extraction and store also the time used for computing this simplex vector
 			ignore_derivatives() do
-				B.θ = θ[it]
+				B.θ = θ
 				append!(times["distribution"], time() - t1)
 			end
 
 			ignore_derivatives() do
 				t1 = time()
 			end
-
+			
+			
 			# Compute the new trial direction as convex combination of the gradients in the Bundle
-			B.w = vcat([B.G[s:e, comps[it]] * θ[it][i, :] for (i, (s, e)) in enumerate(B.idxComp)]...)
+			B.w = hcat([B.G[:,i, comps[it]] * θ[i, :] for (i, j) in enumerate(B.idxComp)]...)
 
 			# Store the time to compute that convex combination
 			ignore_derivatives() do
@@ -241,7 +233,7 @@ function bundle_execution(
 			end
 
 			# Compute the new trial point considering a step of size `t` from the stabilization point `z_bar` considering the new search direction `w[it]`
-			z_new[:] = act(z_bar[:] + vcat([B.t[i] * B.w[s:e] for (i, (s, e)) in enumerate(B.idxComp)]...))
+			z_new = act(z_bar + B.w .* B.t)
 			ignore_derivatives() do
 				append!(times["update_point"], time() - t1)
 			end
@@ -252,12 +244,15 @@ function bundle_execution(
 			end
 
 			# Compute the value and the sub-gradient associated to the new trial point
-			for (i, (s, e)) in enumerate(B.idxComp)
-				v, g_tmp = value_gradient(ϕ[i], z_new[s:e])
-				g[s:e] = g_tmp
-				obj_new[i] = v
+			#for (i, j) in enumerate(B.idxComp)
+			#	v, g_tmp = value_gradient(ϕ[i], z_new[j,i])
+			#	g[j,i] = reshape(cpu(g_tmp),:)
+			#	obj_new[i] = v
+			#end
+			obj_new = vcat([value_gradient(ϕ[i],z_new[:,i])[1] for i in 1:length(B.idxComp)]...)
+			ignore_derivatives() do
+				g = hcat([value_gradient(ϕ[i],z_new[:,i])[2] for i in 1:length(B.idxComp)]...)
 			end
-
 			B.size+=1
 			B.li=B.size
 			if B.reduced_components
@@ -304,21 +299,20 @@ function bundle_execution(
 				# otherwhise
 				if !soft_updates
 					# if no soft updates are consider, then we update the stabilization point if the new trial point improves the objective value
-					for (i, (s, e)) in enumerate(B.idxComp)
-						z_bar[s:e] = (obj_new[i] > obj_bar[i] ? (z_new[s:e]) : (z_bar[s:e]))
-						obj_bar[i] = (obj_new[i] > obj_bar[i] ? obj_new[i] : obj_bar[i])
-					end
+					isgeq = obj_bar .>= obj_new
+					obj_bar = ifelse.(isgeq,obj_bar,obj_new)
+					z_bar = ifelse.(repeat(device(isgeq'),(size(z_bar,1))),z_bar,z_new)
 				else
 					# if soft updates are consider, then we update the stabilization point 
-					# using the softmax of the objective value (of new trial point and stabilization point)
-					for (i, (s, e)) in enumerate(B.idxComp)
-						sm = softmax([obj_new[i], obj_bar[i]])
-						obj_bar[i] = sm' * [obj_new[i], obj_bar[i]]
-						z_bar[s:e] = device(sm' * cpu.([z_new[s:e], z_bar[s:e]]))
-					end
+					# using the softmax of thecobjective value (of new trial point and stabilization point)
+						sj=cat(obj_new,obj_bar;dims=2)
+						sm=softmax(sj;dims=2)
+						obj_bar = sum(sm .* sj ;dims=2)
+						bm = permutedims(cat(z_bar,z_new;dims=3),(2,3,1))
+						z_bar = permutedims(dropdims(sum(device(sm) .* device(bm);dims=1),dims=1),(2,1))
 				end
 				# update the stabilization point index (used only for features extraction)
-				B.s = vcat([obj_new[i] > obj_bar[i] ? B.li : B.s[i] for i in 1:length(B.s)]...)
+				B.s = ifelse.(reshape(cpu(obj_bar .>= obj_new),:),B.s,B.li*ones(length(B.s)))
 			end
 			# store the time for stabilization point updates
 			ignore_derivatives() do
@@ -330,15 +324,14 @@ function bundle_execution(
 			end
 
 			# update the gradient matrix
-			B.G[:, B.li] = device(g[:])
+			B.G = cat(B.G,g;dims=3)
 			# update the trial points matrix
-			B.z[:, B.li] = z_new[:]
+			B.z = cat(B.z,z_new;dims=3)
 			# update the objective value matrix
-			B.obj[:, B.li] = obj_new[:]
+			B.obj = cat(B.obj,(obj_new)';dims=3)
 			# update the linearization errors matrix
-			for (i, (s, e)) in enumerate(B.idxComp)
-				B.α[i, :] = (B.obj[i, :] .- obj_bar[i, :]) .- cpu(sum(B.G[s:e, :] .* (B.z[s:e, :] .- z_bar[s:e]); dims = 1))'
-			end
+			B.α = (B.obj .- device(obj_bar)) .-  (batched_mul(permutedims(B.z .- z_bar,(2,1,3)),B.G))
+			
 
 			# store the time for bundle update and the one for the whole iteration
 			ignore_derivatives() do
@@ -353,9 +346,9 @@ function bundle_execution(
 		else
 			# at training time return the loss value
 			# first a telescopic sum of all the visited points
-			vγ = (γ > 0 ? mean(γ * mean([γ^(maxIt+1 - i) for i in (maxIt+1):-1:1] .* [ϕ[iϕ](reshape(z[s:e], sizeInputSpace(ϕ[iϕ]))) for z in eachcol(B.z[:, 1:(maxIt+1)])]) for (iϕ, (s, e)) in enumerate(B.idxComp)) : 0)
+			vγ = (γ > 0 ? mean(γ * mean([γ^(maxIt+1 - i) for i in (maxIt+1):-1:1] .* [ϕ[iϕ](reshape(z, sizeInputSpace(ϕ[iϕ]))) for z in eachcol(B.z[j, iϕ, 1:(maxIt+1)])]) for (iϕ, j) in enumerate(B.idxComp)) : 0)
 			# then also a convex combination of final trial point and final stabilization point
-			vλ = mean((1 - λ) * ϕ[iϕ](reshape(z_bar[s:e], sizeInputSpace(ϕ[iϕ]))) + (λ) * ϕ[iϕ](reshape(z_new[s:e], sizeInputSpace(ϕ[iϕ]))) for (iϕ, (s, e)) in enumerate(B.idxComp))
+			vλ = mean((1 - λ) * ϕ[iϕ](reshape(z_bar[j,iϕ], sizeInputSpace(ϕ[iϕ]))) + (λ) * ϕ[iϕ](reshape(z_new[j,iϕ], sizeInputSpace(ϕ[iϕ]))) for (iϕ, j) in enumerate(B.idxComp))
 			# the loss will be the sum of the two
 			return vγ + vλ
 		end
