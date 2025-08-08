@@ -309,7 +309,7 @@ function bundle_execution(
 						sm=softmax(sj;dims=2)
 						obj_bar = sum(sm .* sj ;dims=2)
 						bm = permutedims(cat(z_bar,z_new;dims=3),(2,3,1))
-						z_bar = permutedims(dropdims(sum(device(sm) .* device(bm);dims=1),dims=1),(2,1))
+						z_bar = permutedims(dropdims(sum(device(sm) .* device(bm);dims=2),dims=1),(2,1))
 				end
 				# update the stabilization point index (used only for features extraction)
 				B.s = ifelse.(reshape(cpu(obj_bar .>= obj_new),:),B.s,B.li*ones(length(B.s)))
