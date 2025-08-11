@@ -24,6 +24,7 @@ end
 mutable struct AttentionModel <: AbstractModel
 	encoder::Chain # model to encode mean and variance to sample hidden representations
 	decoder_t::Chain # decode t from hidden representation
+	decoder_temperature::Chain # decode t from hidden representation
 	decoder_γk::Chain# decode keys from hidden representation
 	decoder_γq::Chain# decode query from hidden representation
 	rng::MersenneTwister #random number generator
@@ -46,6 +47,7 @@ function reset!(m::AttentionModel, bs::Int = 1, it::Int = 500)
 	# reset the model component to forgot history in RNN
 	Flux.reset!(m.encoder)
 	Flux.reset!(m.decoder_t)
+	Flux.reset!(m.decoder_temperature)
 	Flux.reset!(m.decoder_γk)
 	Flux.reset!(m.decoder_γq)
 
@@ -77,14 +79,17 @@ function (m::AttentionModel)(xt, xγ, idx, comps)
 	σ2 = exp.(σ2)
 	sigma = sqrt.(σ2 .+ 1)
 
-	μt,μk,μq = m.h3_representations ? copy.(Flux.MLUtils.chunk(μ, 3, dims = 1)) : (copy(μ) ,copy(μ) ,copy(μ))
-	σt,σk,σq = m.h3_representations ? Flux.MLUtils.chunk(sigma, 3, dims = 1) : (sigma,sigma,sigma)
+	μt,μb, μk,μq = m.h3_representations ? copy.(Flux.MLUtils.chunk(μ, 4, dims = 1)) : (copy(μ) ,copy(μ) ,copy(μ),copy(μ))
+	σt,σb,σk,σq = m.h3_representations ? Flux.MLUtils.chunk(sigma, 4, dims = 1) : (sigma,sigma,sigma,sigma)
 
 	# create the random component for the sample of the time
-    ϵt,ϵk,ϵq =  device(randn(m.rng, Float32, size(μt))), device(randn(m.rng, Float32, size(μk))), device(randn(m.rng, Float32, size(μq)))
+    ϵt,ϵb,ϵk,ϵq =  device(randn(m.rng, Float32, size(μt))), device(randn(m.rng, Float32, size(μb))), device(randn(m.rng, Float32, size(μk))), device(randn(m.rng, Float32, size(μq)))
 	
 	# sample the hidden representation of t and then give it as input to the decoder to compute t
 	t = m.decoder_t(m.sample_t ? μt .+ ϵt .* σt : μt )
+
+	b = m.decoder_temperature(m.sample_t ? μb .+ ϵb .* σb : μb )
+
 	# sample the hidden representation of the key and the query
 	hk = m.decoder_γk(m.sample_γ ? μk .+ ϵk .* σk : μk )
 	hq = m.decoder_γq(m.sample_γ ? μq .+ ϵq .* σq : μq )
@@ -117,7 +122,7 @@ function (m::AttentionModel)(xt, xγ, idx, comps)
 		# Step 3: Reshape to (T, B)
 		γs = reshape(γs, B, T)
 
-		return (device == gpu ? cu : identity)(reshape(t[:,end:end,:],1,:)), γs
+		return (device == gpu ? cu : identity)(reshape(t[:,end:end,:],1,:)), tanh.(γs) .* b
 	end
 end
 
@@ -150,13 +155,19 @@ function create_NN(
 	init = Flux.truncated_normal(Flux.MersenneTwister(seed); mean = 0.0, std = 0.01)
 
 	#the encoder used to predict the hidden space, given the features of the current iteration,
-	encoder = rnn ? Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => (h3_representations ? 6 : 2) * h_representation)) : Chain(f_norm, Dense(size_features(lt) + size_comp_features(lt) => (h3_representations ? 6 : 2) * h_representation,h_act))
+	encoder = rnn ? Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => (h3_representations ? 8 : 2) * h_representation)) : Chain(f_norm, Dense(size_features(lt) + size_comp_features(lt) => (h3_representations ? 8 : 2) * h_representation,h_act))
 
 	# construct the decoder that predicts `t` from its hidden representation
 	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
 	h_decoder_layers = [Dense(h_decoder[i] => h_decoder[i+1], h_act; init) for i in 1:length(h_decoder)-1]
 	o_decoder_layers = Dense(h_decoder[end] => 1, ot_act; init)
 	decoder_t = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
+
+	# construct the decoder that predicts `t` from its hidden representation
+	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
+	h_decoder_layers = [Dense(h_decoder[i] => h_decoder[i+1], h_act; init) for i in 1:length(h_decoder)-1]
+	o_decoder_layers = Dense(h_decoder[end] => 1, ot_act; init)
+	decoder_temperature = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
 
 	# construct the decoder that predicts the query from its hidden representation
 	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
@@ -171,7 +182,7 @@ function create_NN(
 	decoder_γk = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
 
 	#put all together to construct an `AttentionModel`
-	model = AttentionModel(device(encoder), device(decoder_t), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs , h_representation, it)))))
+	model = AttentionModel(device(encoder), device(decoder_t),device(decoder_temperature), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs , h_representation, it)))))
 	return model
 end
 
