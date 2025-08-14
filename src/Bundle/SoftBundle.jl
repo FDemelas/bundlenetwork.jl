@@ -249,7 +249,7 @@ function bundle_execution(
 			#	g[j,i] = reshape(cpu(g_tmp),:)
 			#	obj_new[i] = v
 			#end
-			results = map(i -> value_gradient(ϕ[i], z_new[:, i]), 1:length(B.idxComp))
+			results = map(i -> value_gradient(ϕ[i], z_new[B.idxComp[i], i]), 1:length(B.idxComp))
 			obj_new = vcat(first.(results)...)
 			ignore_derivatives() do
  				g = hcat(last.(results)...)
@@ -306,11 +306,11 @@ function bundle_execution(
 				else
 					# if soft updates are consider, then we update the stabilization point 
 					# using the softmax of thecobjective value (of new trial point and stabilization point)
-						sj=cat(obj_new,obj_bar;dims=2)
-						sm=softmax(sj;dims=2)
-						obj_bar = sum(sm .* sj ;dims=2)
-						bm = permutedims(cat(z_bar,z_new;dims=3),(2,3,1))
-						z_bar = permutedims(dropdims(sum(device(sm) .* device(bm);dims=2),dims=1),(2,1))
+						sj=device(cat(obj_new,obj_bar;dims=2))
+						sm=device(softmax(sj;dims=2))
+						obj_bar = cpu(sum(sm .* sj ;dims=2))
+						bm = cat(z_bar,z_new;dims=3)
+						z_bar = dropdims( batched_mul(permutedims(bm,(1,3,2)),permutedims(sm,(2,1)));dims=3)
 				end
 				# update the stabilization point index (used only for features extraction)
 				B.s = ifelse.(reshape(cpu(obj_bar .>= obj_new),:),B.s,B.li*ones(length(B.s)))
