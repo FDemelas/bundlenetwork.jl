@@ -196,7 +196,7 @@ function bundle_execution(
 			
 
 			# and index that allows to consider all the bundle components (by default as max_inst = + Inf) or just a fixed amount (max_inst < +Inf)
-			min_idx = Int64(max(1, length(comps[it]) - max_inst))
+			# min_idx = Int64(max(1, length(comps[it]) - max_inst))
 			# model computing time
 			ignore_derivatives() do
 				append!(times["model"], time() - t1)
@@ -249,9 +249,10 @@ function bundle_execution(
 			#	g[j,i] = reshape(cpu(g_tmp),:)
 			#	obj_new[i] = v
 			#end
-			obj_new = vcat([value_gradient(ϕ[i],z_new[:,i])[1] for i in 1:length(B.idxComp)]...)
+			results = map(i -> value_gradient(ϕ[i], z_new[:, i]), 1:length(B.idxComp))
+			obj_new = vcat(first.(results)...)
 			ignore_derivatives() do
-				g = hcat([value_gradient(ϕ[i],z_new[:,i])[2] for i in 1:length(B.idxComp)]...)
+ 				g = hcat(last.(results)...)
 			end
 			B.size+=1
 			B.li=B.size
@@ -342,7 +343,7 @@ function bundle_execution(
 
 		if inference
 			# at inference time just return the objective value in the final stabilization point and the times dictionary
-			return mean(ϕ[iϕ](reshape(z_bar[s:e], sizeInputSpace(ϕ[iϕ]))) for (iϕ, (s, e)) in enumerate(B.idxComp)), times
+			return mean(ϕ[iϕ](reshape(z_bar[:], sizeInputSpace(ϕ[iϕ]))) for (iϕ, (s, e)) in enumerate(B.idxComp)), times
 		else
 			# at training time return the loss value
 			# first a telescopic sum of all the visited points
