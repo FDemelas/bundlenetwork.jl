@@ -285,8 +285,8 @@ function main(args)
 		"_" * string(maxEp) * "_" * string(soft_updates) * "_" *
 		string(h_representation) * "_" * string(sampling_θ) * string(sampling_t)* "_" * string(h_act) * "_" * string(use_softmax) * "_" * string(gamma) * "_" * string(lambda) * "_" * string(delta) * "_" * string(distribution_function) * "_" * string(bgr) * "_" *
 		string(incremental)*"_rc"*string(reduced_components)*"_ss"*string(scheduling_ss)*"_"*string(h3)*"_"*string(recurrent)*"_"*string(repeated)
-	sN = sum([1 for j in readdir("resLogs") if contains(j, res_folder)]; init = 0.0)
-	res_folder = "resLogs/" * res_folder * "_" * string(sN + 1)
+	sN = sum([1 for j in readdir("results_logs") if contains(j, res_folder)]; init = 0.0)
+	res_folder = "results_logs/" * res_folder * "_" * string(sN + 1)
 	mkdir(res_folder)
 	f = JSON.open(res_folder * "/dataset.json", "w")
 	JSON.print(f, Dict("training" => directory[idxs], "validation" => directory[idxs_v], "test" => directory[idxs_test]))
@@ -334,8 +334,8 @@ function main(args)
 					append!(gs, gap(maximum(B.obj) * ϕ.rescaling_factor, gold[idx]))
 				else
 					append!(ls, mv)
-					append!(vs, mean(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
-					append!(gs, mean([gap(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
+					append!(vs, mean(maximum(B.obj[1,j, :]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
+					append!(gs, mean([gap(maximum(B.obj[1,j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
 				end
 				#				nn = B.nn
 				first += batch_size
@@ -396,10 +396,10 @@ function main(args)
 					append!(vs_v_tI, maximum(B.obj[ 1:min(maxIt, maxItVal)]))
 					append!(gs_v_tI, gap(maximum(B.obj[1:min(maxIt, maxItVal)]) * ϕ.rescaling_factor, gold[idx]))
 				else
-					append!(vs_v, mean(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
-					append!(gs_v, mean([gap(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
-					append!(vs_v_tI, mean(maximum(B.obj[j, 1:min(maxIt, maxItVal)]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
-					append!(gs_v_tI, mean([gap(maximum(B.obj[j, 1:min(maxIt, maxItVal)]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
+					append!(vs_v, mean(maximum(B.obj[1, j, :]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
+					append!(gs_v, mean([gap(maximum(B.obj[1, j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
+					append!(vs_v_tI, mean(maximum(B.obj[1, j, 1:min(maxIt, maxItVal)]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
+					append!(gs_v_tI, mean([gap(maximum(B.obj[1, j, 1:min(maxIt, maxItVal)]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
 					first += batch_size
 					last += batch_size
 					last = min(last, mvi)
