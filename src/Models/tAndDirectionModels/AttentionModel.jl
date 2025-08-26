@@ -36,6 +36,7 @@ mutable struct AttentionModel <: AbstractModel
 	h3_representations::Bool # if true use three indipendent hidden representations instead of one
 	repeated::Bool # if true recompute the inputs for all the previous iterations
 	Ks::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 3, CUDA.DeviceMemory}} # matrix og keys
+	use_tanh::Bool
 end
 
 """
@@ -122,7 +123,7 @@ function (m::AttentionModel)(xt, xγ, idx, comps)
 		# Step 3: Reshape to (T, B)
 		γs = reshape(γs, B, T)
 
-		return (device == gpu ? cu : identity)(reshape(t[:,end:end,:],1,:)), tanh.(γs) .* b
+		return (device == gpu ? cu : identity)(reshape(t[:,end:end,:],1,:)), (m.use_tanh ? tanh.(γs) .* b : γs)
 	end
 end
 
@@ -144,7 +145,8 @@ function create_NN(
 	ot_act = softplus,
 	rnn = true,
 	h3_representations::Bool = false,
-	repeated::Bool = true
+	repeated::Bool = true,
+	use_tanh::Bool = false
 )
 	bs,it=1,1
 	# possibly a normalization function, but is `norm` is false, then it is the identity
@@ -182,7 +184,7 @@ function create_NN(
 	decoder_γk = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
 
 	#put all together to construct an `AttentionModel`
-	model = AttentionModel(device(encoder), device(decoder_t),device(decoder_temperature), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs , h_representation, it)))))
+	model = AttentionModel(device(encoder), device(decoder_t),device(decoder_temperature), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs , h_representation, it)))),use_tanh)
 	return model
 end
 
