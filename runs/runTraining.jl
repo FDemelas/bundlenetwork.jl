@@ -148,6 +148,10 @@ function main(args)
 		arg_type = Bool
 		default = true
 		help = "If true use recurrency to compute the (hidden) representations ."
+		"--use_tanh"
+		arg_type = Bool
+		default = false
+		help = "If true use the hyberbolic tangent to compute a scalar in [-1,1] for each component and a temperature to predict the gammas."
 	end
 
 	# take the input parameters and construct a Dictionary
@@ -183,6 +187,7 @@ function main(args)
 	repeated = parsed_args["repeated"]
 	recurrent = parsed_args["recurrent"]
 	act = contains(folder,"GA") ? relu : identity
+	use_tanh = parsed_args["use_tanh"]
 
 	reduced_components = parsed_args["reduced_components"]
 	distribution_function = use_softmax ? softmax : (BundleNetworks.sparsemax)
@@ -191,7 +196,7 @@ function main(args)
 	format = split(directory[1], ".")[end]
 
 	factory = bgr ? BundleNetworks.AttentionModelFactory() : BundleNetworks.AttentionModelFactory()
-	global nn = BundleNetworks.create_NN(factory; h_representation, h_act, sampling_θ,sampling_t,repeated, h3_representations=h3,rnn=recurrent)
+	global nn = BundleNetworks.create_NN(factory; h_representation, h_act, sampling_θ,sampling_t,repeated, h3_representations=h3,rnn=recurrent,use_tanh=use_tanh)
 	nn.h_representation = BundleNetworks.h_representation(nn)
 	BundleNetworks.reset!(nn, batch_size)
 	use_gpu = true
@@ -284,7 +289,7 @@ function main(args)
 		"BatchVersion_bs_" * string(batch_size) * "_seed"*string(seed)*"_" * string(a_b) * "_" * string(split(folder, "/")[end-1]) * "_" * string(lr) * "_" * string(decay) * "_" * string(cn) * "_" * string(mti) * "_" * string(mvi) * "_" * string(seed) * "_" * string(maxIt) *
 		"_" * string(maxEp) * "_" * string(soft_updates) * "_" *
 		string(h_representation) * "_" * string(sampling_θ) * string(sampling_t)* "_" * string(h_act) * "_" * string(use_softmax) * "_" * string(gamma) * "_" * string(lambda) * "_" * string(delta) * "_" * string(distribution_function) * "_" * string(bgr) * "_" *
-		string(incremental)*"_rc"*string(reduced_components)*"_ss"*string(scheduling_ss)*"_"*string(h3)*"_"*string(recurrent)*"_"*string(repeated)
+		string(incremental)*"_rc"*string(reduced_components)*"_ss"*string(scheduling_ss)*"_h3"*string(h3)*"_rec"*string(recurrent)*"_rep"*string(repeated)*"_tanh"*string(use_tanh)
 	sN = sum([1 for j in readdir("resLogs") if contains(j, res_folder)]; init = 0.0)
 	res_folder = "resLogs/" * res_folder * "_" * string(sN + 1)
 	mkdir(res_folder)
