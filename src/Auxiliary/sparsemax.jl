@@ -14,7 +14,9 @@ function sparsemax(γi; dims=1)
 	# collect the range w.r.t. the dimension `dims`. In pratice provide the row or columns index of the associated component depending to `dims`
 	rng = device(dims == 2 ? repeat(collect(1:size(z, 2))', size(z, 1)) : repeat(collect(1:size(z, 1))', size(z, 2))')
 	# By `dims` provide a matrix of boolean with true in the associated component if k⋅zₖ + 1 >  ∑ᵏᵢ zᵢ
-	is_gt = (rng .* z .> cs .- 1)
+	is_gt = ((rng .- 1) .* z .+ 1 .> cs .- z )
+	# just for numerical stability the real operation is  (rng .* z .+ 1 .> cs )
+
 	# the maximum index satisfying the previous property
 	k = maximum(rng .* is_gt; dims)
 	# compute the rescaling factor τ
@@ -34,7 +36,9 @@ function ChainRulesCore.rrule(::typeof(sparsemax), γi; dims=1)
 	# collect the range w.r.t. the dimension `dims`. In pratice provide the row or columns index of the associated component depending to `dims`
 	rng = device(dims == 2 ? repeat(collect(1:size(z, 2))', size(z, 1)) : repeat(collect(1:size(z, 1))', size(z, 2))')
 	# By `dims` provide a matrix of boolean with true in the associated component if k⋅zₖ + 1 >  ∑ᵏᵢ zᵢ
-	is_gt = (rng .* z  .> cs .- 1)
+	is_gt = ((rng .- 1) .* z .+ 1 .> cs .- z )
+	# just for numerical stability the real operation is  (rng .* z .+ 1 .> cs )
+	
 	# the maximum index satisfying the previous property
 	k = maximum(rng .* is_gt; dims)
 	# compute the rescaling factor τ
