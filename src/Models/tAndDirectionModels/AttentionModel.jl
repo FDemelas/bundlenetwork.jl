@@ -197,7 +197,7 @@ The inputs are:
 """
 function (m::AttentionModel)(xt, xγ, idx, comps)
 	# append the features for t and for γs
-	x = cat(xt,xγ;dims=1)#ndims(xt))
+	x = vcat(xt,xγ)#ndims(xt))
 
 	# encode the full hidden representation
 	h = m.encoder(x)
