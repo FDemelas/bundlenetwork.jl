@@ -150,22 +150,23 @@ function size_features(lt::AttentionModelFactory)
 	return 16
 end
 
+
 mutable struct AttentionModel <: AbstractModel
 	encoder::Chain # model to encode mean and variance to sample hidden representations
 	decoder_t::Chain # decode t from hidden representation
+	decoder_temperature::Chain # decode t from hidden representation
 	decoder_γk::Chain# decode keys from hidden representation
 	decoder_γq::Chain# decode query from hidden representation
 	rng::MersenneTwister #random number generator
 	sample_t::Bool # if true sample hidden representation of t, otherwhise take the mean (i.e. no sampling)
 	sample_γ::Bool# if true sample hidden representation of keys and queries, otherwhise take the mean (i.e. no sampling)
-	Ks::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # matrix og keys
-	μs::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # random normal matrix that stock the means of keys and queries before the sampling. Useful only if log_trick is true 
-	σs::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # random normal matrix that stock the variances of keys and queries before the sampling. Useful only if log_trick is true 
-	ϵs::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # random normal matrix that stock the random part of the sampling. Useful only if log_trick is true
 	rescaling_factor::Int64 # rescaling_factor for the output γs (unused for the moment)
-	log_trick::Bool # if true use the log_trick regularization. Note: for the moment it is not implemented
 	h_representation::Int64 # size of hidden representations
 	it::Int64 # iteration counter
+	h3_representations::Bool # if true use three indipendent hidden representations instead of one
+	repeated::Bool # if true recompute the inputs for all the previous iterations
+	Ks::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 3, CUDA.DeviceMemory}} # matrix og keys
+	use_tanh::Bool
 end
 
 """
@@ -177,15 +178,13 @@ function reset!(m::AttentionModel, bs::Int = 1, it::Int = 500)
 	# reset the model component to forgot history in RNN
 	Flux.reset!(m.encoder)
 	Flux.reset!(m.decoder_t)
+	Flux.reset!(m.decoder_temperature)
 	Flux.reset!(m.decoder_γk)
 	Flux.reset!(m.decoder_γq)
 
-	# reinitialization of the keys matrix
-	m.Ks = Zygote.bufferfrom(device(zeros(Float32, bs * m.h_representation, it)))#[]
-	# if log_tricks is true reinitialize the matrix used to store random part, mean and variance of keys and queries
-	m.μs = Zygote.bufferfrom(device(zeros(Float32, 2 * m.h_representation * bs, it)))#[]
-	m.σs = Zygote.bufferfrom(device(zeros(Float32, 2 * m.h_representation * bs, it)))#[]
-	m.ϵs = Zygote.bufferfrom(device(zeros(Float32, 2 * m.h_representation * bs, it)))#[]
+	if !m.repeated
+		m.Ks = Zygote.bufferfrom(device(zeros(Float32, bs ,  m.h_representation, it)))#[]
+	end
 	# reset iteration counter to 1
 	m.it = 1
 end
@@ -198,61 +197,64 @@ The inputs are:
 """
 function (m::AttentionModel)(xt, xγ, idx, comps)
 	# append the features for t and for γs
-	x = vcat(xt, xγ)
+	x = cat(xt,xγ;dims=1)#ndims(xt))
 
 	# encode the full hidden representation
 	h = m.encoder(x)
 	# divide the hidden representation in mean and variance for t,the query and the key
-	μ, σ2, μ_hki, σ_hki, μ_hqi, σ_hqi = Flux.MLUtils.chunk(h, 6, dims = 1)
+	μ, σ2 = Flux.MLUtils.chunk(h, 2, dims = 1)
 
 	#construct the values to sample the hidden representation of t 
 	σ2 = 2.0f0 .- softplus.(2.0f0 .- σ2)
 	σ2 = -6.0f0 .+ softplus.(σ2 .+ 6.0f0)
 	σ2 = exp.(σ2)
 	sigma = sqrt.(σ2 .+ 1)
-	ϵ = device(randn(m.rng, Float32, size(μ)))
 
+	μt,μb, μk,μq = m.h3_representations ? copy.(Flux.MLUtils.chunk(μ, 4, dims = 1)) : (copy(μ) ,copy(μ) ,copy(μ),copy(μ))
+	σt,σb,σk,σq = m.h3_representations ? Flux.MLUtils.chunk(sigma, 4, dims = 1) : (sigma,sigma,sigma,sigma)
+
+	# create the random component for the sample of the time
+    ϵt,ϵb,ϵk,ϵq =  device(randn(m.rng, Float32, size(μt))), device(randn(m.rng, Float32, size(μb))), device(randn(m.rng, Float32, size(μk))), device(randn(m.rng, Float32, size(μq)))
+	
 	# sample the hidden representation of t and then give it as input to the decoder to compute t
-	t = m.decoder_t(m.sample_t ? μ .+ ϵ .* sigma : μ)
+	t = m.decoder_t(m.sample_t ? μt .+ ϵt .* σt : μt )
 
-	# create the random component for the sample of the key
-	ϵk = device(randn(m.rng, Float32, size(μ_hki)))
-
-	# create the random component for the sample of the query
-	ϵq = device(randn(m.rng, Float32, size(μ_hqi)))
-
-	# create the variances for the sample of the key
-	σ2 = 2.0f0 .- softplus.(2.0f0 .- σ_hqi)
-	σ2 = -6.0f0 .+ softplus.(σ2 .+ 6.0f0)
-	σ2 = exp.(σ2)
-	σ_hqi = sqrt.(σ2 .+ 1)
-
-	# create the variances for the sample of the query
-	σ2 = 2.0f0 .- softplus.(2.0f0 .- σ_hki)
-	σ2 = -6.0f0 .+ softplus.(σ2 .+ 6.0f0)
-	σ2 = exp.(σ2)
-	σ_hki = sqrt.(σ2 .+ 1)
+	b = m.decoder_temperature(m.sample_t ? μb .+ ϵb .* σb : μb )
 
 	# sample the hidden representation of the key and the query
-	hki = m.decoder_γk(m.sample_γ ? μ_hki + ϵk .* σ_hki : μ_hki)
-	hqi = m.decoder_γq(m.sample_γ ? μ_hqi + ϵq .* σ_hqi : μ_hqi)
+	hk = m.decoder_γk(m.sample_γ ? μk .+ ϵk .* σk : μk )
+	hq = m.decoder_γq(m.sample_γ ? μq .+ ϵq .* σq : μq )
 
-	# add the current hidden representation of the key to the matrix that store all the hidden representations
-	m.Ks[:, idx] = reshape(hki, :)
+	
+	
+	if !m.repeated
+		m.Ks[:, :,idx] = hk
+		
+		# compute the output to predict the new convex combination (after using it as input to a distribution function as softmax or sparsemax)
+		aq = dropdims(hq,dims=2)
+		ak = m.Ks[:, :, comps]
+	
+		# add the current hidden representation of the key to the matrix that store all the hidden representations
+		
+		γs = vcat([aq[:,i]'ak[i,:,:] for i in 1:size(ak,1)]...)
+		return t, γs
+	else
+		# Assume hq and hk are CuArrays of shape (latent, iterations, batch)
+		latent, T, B = size(hq)
 
-	# if log_trick is true than store additional informations
-	if m.log_trick
-		m.μs[:, idx] = vcat(μ_hki, μ_hqi)
-		m.ϵs[:, idx] = vcat(ϵk, ϵq)
-		m.σs[:, idx] = vcat(σ_hki, σ_hqi)
+	
+		# Step 1: Extract hq at the last iteration → shape (latent, 1, batch)
+		hq_last = hq[:, end:end, :]  # keep 3D shape: (latent, 1, B)
+
+		# Step 2: Compute dot products across all hk iterations
+		# We'll use batched_mul: (1, latent, B) × (latent, T, B) → (1, T, B)
+		γs = batched_mul(permutedims(hq_last, (2,1,3)), hk)  # (1, T, B)
+
+		# Step 3: Reshape to (T, B)
+		γs = reshape(γs, B, T)
+
+		return (device == gpu ? cu : identity)(reshape(t[:,end:end,:],1,:)), (m.use_tanh ? tanh.(γs) .* b : γs)
 	end
-
-	# compute the output to predict the new convex combination (after using it as input to a distribution function as softmax or sparsemax)
-	aq = device(size(hqi, 2) > 1 ? Flux.MLUtils.chunk(hqi, size(hqi, 2); dims = 2) : [hqi])
-	ak = (Flux.MLUtils.chunk(m.Ks[:, comps], Int64(size(m.Ks, 1) / m.h_representation); dims = 1))
-	γs = vcat(map((x, y) -> sum(x'y; dims = 1), aq, ak)...)
-
-	return t, γs
 end
 
 # define `AttentionModel` as a Flux layer
@@ -264,14 +266,17 @@ Function to create an `AttentionModel` given its hyper-parameters.
 function create_NN(
 	lt::AttentionModelFactory;
 	h_act = gelu,
-	h_representation::Int = 32,
+	h_representation::Int = 128,
 	h_decoder::Vector{Int} = [h_representation * 8],
 	seed::Int = 1,
 	norm::Bool = false,
 	sampling_t::Bool = false,
 	sampling_θ::Bool = true,
-	log_trick::Bool = false,
 	ot_act = softplus,
+	rnn = true,
+	h3_representations::Bool = false,
+	repeated::Bool = true,
+	use_tanh::Bool = false
 )
 	bs,it=1,1
 	# possibly a normalization function, but is `norm` is false, then it is the identity
@@ -282,13 +287,19 @@ function create_NN(
 	init = Flux.truncated_normal(Flux.MersenneTwister(seed); mean = 0.0, std = 0.01)
 
 	#the encoder used to predict the hidden space, given the features of the current iteration,
-	encoder = Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => 6 * h_representation))
+	encoder = rnn ? Chain(f_norm, LSTM(size_features(lt) + size_comp_features(lt) => (h3_representations ? 8 : 2) * h_representation)) : Chain(f_norm, Dense(size_features(lt) + size_comp_features(lt) => (h3_representations ? 8 : 2) * h_representation,h_act))
 
 	# construct the decoder that predicts `t` from its hidden representation
 	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
 	h_decoder_layers = [Dense(h_decoder[i] => h_decoder[i+1], h_act; init) for i in 1:length(h_decoder)-1]
 	o_decoder_layers = Dense(h_decoder[end] => 1, ot_act; init)
 	decoder_t = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
+
+	# construct the decoder that predicts `t` from its hidden representation
+	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
+	h_decoder_layers = [Dense(h_decoder[i] => h_decoder[i+1], h_act; init) for i in 1:length(h_decoder)-1]
+	o_decoder_layers = Dense(h_decoder[end] => 1, ot_act; init)
+	decoder_temperature = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
 
 	# construct the decoder that predicts the query from its hidden representation
 	i_decoder_layer = Dense(h_representation => h_decoder[1], h_act; init)
@@ -303,7 +314,7 @@ function create_NN(
 	decoder_γk = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
 
 	#put all together to construct an `AttentionModel`
-	model = AttentionModel(device(encoder), device(decoder_t), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), device( Zygote.bufferfrom(device(zeros(Float32, bs * h_representation, it)))), 1.0, log_trick, h_representation, 1)
+	model = AttentionModel(device(encoder), device(decoder_t),device(decoder_temperature), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs , h_representation, it)))),use_tanh)
 	return model
 end
 
