@@ -44,3 +44,8 @@ Size of the inputs of the function `ϕ` of type `LagrangianFunctionUC`.
 function sizeInputSpace(ϕ::LagrangianFunctionUC)
     return Instances.nT(ϕ.inst)
 end
+
+
+function numberSP(ϕ::LagrangianFunctionUC)
+    return ϕ.inst.I
+end

@@ -73,3 +73,16 @@ In practice it corresponds to the size of the parameters of the 'hidden' network
 function sizeInputSpace(l::InnerLoss)
 	return sum([prod(l.layers[i:i+1]) + l.layers[i+1] for i in 1:length(l.layers)-1])
 end
+
+function numberSP(l::InnerLoss)
+	return 1
+end
+
+
+"""
+Given an `AbstractConcaveFunction` `ϕ` and an input vector `z` for the former, this function computes the value and a sub-gradient for `ϕ(z)`.
+"""
+function value_gradient(ϕ::InnerLoss,z::AbstractArray)
+    obj,grad=Flux.withgradient((x)->ϕ(x),device(z))
+    return device(obj), device(grad[1])
+end

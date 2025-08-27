@@ -61,3 +61,7 @@ Size of the inputs of the function `ϕ` of type `LagrangianFunctionGA`.
 function sizeInputSpace(ϕ::LagrangianFunctionGA)
     return sizeLM(ϕ.inst)
 end
+
+function numberSP(ϕ::LagrangianFunctionGA)
+    return ϕ.inst.I
+end

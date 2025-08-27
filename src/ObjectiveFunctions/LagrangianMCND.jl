@@ -49,3 +49,8 @@ Size of the inputs of the function `ϕ` of type `LagrangianFunctionMCND`.
 function sizeInputSpace(ϕ::LagrangianFunctionMCND)
     return sizeLM(ϕ.inst)
 end
+
+
+function numberSP(ϕ::LagrangianFunctionMCND)
+    return sizeE(ϕ.inst)
+end
