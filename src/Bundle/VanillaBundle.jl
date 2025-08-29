@@ -25,6 +25,7 @@ mutable struct Bundle <: DualBundle
 	ϵ::Float32
 	linear_part::Float32
 	quadratic_part::Float32
+	sign::Bool
 end
 
 """
@@ -33,7 +34,7 @@ This version is also refered to 'classic' or 'vanilla' Bundle and corresponds to
 It solve the Dual Master Problem to obtain a search direction and can use different (heuristic) t-strategies.
 """
 function initializeBundle(bt::VanillaBundleFactory,ϕ::AbstractConcaveFunction, t::Real, z::AbstractArray; bp::BundleParameters = BundleParameters(), max_bundle_size = -1)
-	B = Bundle(Float32[;;], Float32[;;], Float32[;;], [], -1, Model(Gurobi.Optimizer), [], [], Inf, [Inf], [Float32[]], bp, 0, 0, 1, Float32[], 1, [t],Dict("times"=>[]),0.0,0.0,0.0,0.0)
+	B = Bundle(Float32[;;], Float32[;;], Float32[;;], [], -1, Model(Gurobi.Optimizer), [], [], Inf, [Inf], [Float32[]], bp, 0, 0, 1, Float32[], 1, [t],Dict("times"=>[]),0.0,0.0,0.0,0.0,true)
 	obj, g = value_gradient(ϕ, z)
 	B.s = 1
 	g = reshape(g, :)
@@ -58,7 +59,7 @@ function initializeBundle(bt::VanillaBundleFactory,ϕ::AbstractConcaveFunction, 
 	B.params.t = t
 	append!(B.ts, t)
 	B.model = create_DQP(B, t)
-
+	B.sign = sign(ϕ) == 1 ? false : true
 	solve_DQP(B)
 
 	compute_direction(B)
