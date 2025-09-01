@@ -65,3 +65,7 @@ end
 function numberSP(ϕ::LagrangianFunctionGA)
     return ϕ.inst.I
 end
+
+function sign(ϕ::LagrangianFunctionGA)
+    return -1
+end

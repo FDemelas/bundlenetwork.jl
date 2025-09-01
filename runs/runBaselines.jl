@@ -42,6 +42,7 @@ function main(args)
 	directory = readdir(folder)
 
 	format = split(directory[1], ".")[end]
+	act = contains(folder,"GA") ? relu : identity
 	batches = collect(1:length(directory))
 	opts = [
 		("Descent", Descent),
@@ -71,7 +72,8 @@ function main(args)
 				#                   			ins,gold=my_read_dat_json(folder*directory[i]);
 				ins, gold = [], []
 				if format == "json"
-					ins, gold = my_read_dat_json(folder * directory[i])
+					ins, gold = contains(folder,"GA") ? my_read_ga_json(folder * directory[i]) : my_read_dat_json(folder * directory[i])
+#					ins, gold = my_read_dat_json(folder * directory[i])
 				else
 					ins, gold = my_read_dat(folder * directory[i]), golds[directory[i]]
 				end
@@ -81,8 +83,7 @@ function main(args)
 					ϕ = BundleNetworks.constructFunction(ins, 1.0)
 					v, g = BundleNetworks.value_gradient(ϕ, zeros(sizeInputSpace(ϕ)))
 					ϕ = BundleNetworks.constructFunction(ins,sqrt(sum(g .* g)))
-					z = zeros(sizeK(ins), sizeV(ins))
-					#t0 = time()
+					z = zeros(BundleNetworks.numberSP(ϕ))
 					bz = copy(z)
 					updated = false
 					best_ϕ = -Inf
@@ -96,6 +97,7 @@ function main(args)
 						append!(timesD["lsp"], time() - t0)
 						t1 = time()
 						Flux.update!(state, z, -∂L)
+						z = act(z)
 						append!(v_b, vi .* ϕ.rescaling_factor)
 						if vi > best_ϕ
 							bz = z
@@ -118,7 +120,7 @@ function main(args)
 					v, g = BundleNetworks.value_gradient(ϕ, zeros(sizeInputSpace(ϕ)))
 					ϕ = BundleNetworks.constructFunction(ins,sqrt(sum(g .* g)))
 					factory = BundleNetworks.RnnTModelfactory()
-					B = BundleNetworks.initializeBundle(VanillaBundleFactory(),ϕ, t, zeros(sizeK(ins), sizeV(ins)))
+					B = BundleNetworks.initializeBundle(VanillaBundleFactory(),ϕ, t, zeros(BundleNetworks.numberSP(ϕ)))
 					B.params.maxIt = mI
 					oc,tD=BundleNetworks.solve!(B, ϕ; t_strat = method[2])
 					v_b = B.all_objs[2:end] .* ϕ.rescaling_factor

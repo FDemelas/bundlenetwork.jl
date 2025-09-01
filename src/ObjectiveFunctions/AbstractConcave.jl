@@ -40,3 +40,7 @@ end
 Sub-Type of `AbstractConcaveFunction` to modelize the Lagrangian Sub-Problem Functions  (that given a point compute the value of the associated Lagrangian Sub-Problem and herits from the class `AbstractLagrangianFunction`) as the ones contained in the files `LagrangianMCND.jl`.
 """
 abstract type AbstractLagrangianFunction <: AbstractConcaveFunction end
+
+function sign(ϕ::AbstractConcaveFunction)
+	return 1
+end

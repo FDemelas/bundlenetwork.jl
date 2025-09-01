@@ -1,3 +1,4 @@
+
 """
 Factory used to create
 """
@@ -165,7 +166,7 @@ mutable struct AttentionModel <: AbstractModel
 	it::Int64 # iteration counter
 	h3_representations::Bool # if true use three indipendent hidden representations instead of one
 	repeated::Bool # if true recompute the inputs for all the previous iterations
-	Ks::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 3, CUDA.DeviceMemory}} # matrix og keys
+	Ks::Zygote.Buffer{Float32, CUDA.CuArray{Float32, 2, CUDA.DeviceMemory}} # matrix og keys
 	use_tanh::Bool
 end
 
@@ -182,9 +183,9 @@ function reset!(m::AttentionModel, bs::Int = 1, it::Int = 500)
 	Flux.reset!(m.decoder_γk)
 	Flux.reset!(m.decoder_γq)
 
-	if !m.repeated
-		m.Ks = Zygote.bufferfrom(device(zeros(Float32, bs ,  m.h_representation, it)))#[]
-	end
+#	if !m.repeated
+		m.Ks = Zygote.bufferfrom(device(zeros(Float32, bs * m.h_representation, it)))#[]
+#	end
 	# reset iteration counter to 1
 	m.it = 1
 end
@@ -214,7 +215,7 @@ function (m::AttentionModel)(xt, xγ, idx, comps)
 	σt,σb,σk,σq = m.h3_representations ? Flux.MLUtils.chunk(sigma, 4, dims = 1) : (sigma,sigma,sigma,sigma)
 
 	# create the random component for the sample of the time
-    ϵt,ϵb,ϵk,ϵq =  device(randn(m.rng, Float32, size(μt))), device(randn(m.rng, Float32, size(μb))), device(randn(m.rng, Float32, size(μk))), device(randn(m.rng, Float32, size(μq)))
+	ϵt,ϵb,ϵk,ϵq =  device(randn(m.rng, Float32, size(μt))), device(randn(m.rng, Float32, size(μb))), device(randn(m.rng, Float32, size(μk))), device(randn(m.rng, Float32, size(μq)))
 	
 	# sample the hidden representation of t and then give it as input to the decoder to compute t
 	t = m.decoder_t(m.sample_t ? μt .+ ϵt .* σt : μt )
@@ -225,36 +226,22 @@ function (m::AttentionModel)(xt, xγ, idx, comps)
 	hk = m.decoder_γk(m.sample_γ ? μk .+ ϵk .* σk : μk )
 	hq = m.decoder_γq(m.sample_γ ? μq .+ ϵq .* σq : μq )
 
-	
-	
-	if !m.repeated
-		m.Ks[:, :,idx] = hk
-		
+#	@show size(m.Ks[:,idx])
+	m.Ks[:, idx] = reshape(hk,:)
+#		
 		# compute the output to predict the new convex combination (after using it as input to a distribution function as softmax or sparsemax)
-		aq = dropdims(hq,dims=2)
-		ak = m.Ks[:, :, comps]
+#		aq = dropdims(hq,dims=2)
+		aq = (size(hq, 2) > 1 ? Flux.MLUtils.chunk(hq, size(hq, 2); dims = 2) : [hq])
+		ak = (Flux.MLUtils.chunk(m.Ks[:, comps], Int64(size(m.Ks, 1) / m.h_representation); dims = 1))
+
+		#ak = m.Ks[:, comps]
 	
 		# add the current hidden representation of the key to the matrix that store all the hidden representations
 		
-		γs = vcat([aq[:,i]'ak[i,:,:] for i in 1:size(ak,1)]...)
+#		γs = vcat([aq[:,i]'ak[i,:] for i in 1:size(ak,1)]...)
+		γs = vcat(map((x, y) -> sum(x'y; dims = 1), aq, ak)...)
+
 		return t, γs
-	else
-		# Assume hq and hk are CuArrays of shape (latent, iterations, batch)
-		latent, T, B = size(hq)
-
-	
-		# Step 1: Extract hq at the last iteration → shape (latent, 1, batch)
-		hq_last = hq[:, end:end, :]  # keep 3D shape: (latent, 1, B)
-
-		# Step 2: Compute dot products across all hk iterations
-		# We'll use batched_mul: (1, latent, B) × (latent, T, B) → (1, T, B)
-		γs = batched_mul(permutedims(hq_last, (2,1,3)), hk)  # (1, T, B)
-
-		# Step 3: Reshape to (T, B)
-		γs = reshape(γs, B, T)
-
-		return (device == gpu ? cu : identity)(reshape(t[:,end:end,:],1,:)), (m.use_tanh ? tanh.(γs) .* b : γs)
-	end
 end
 
 # define `AttentionModel` as a Flux layer
@@ -314,7 +301,7 @@ function create_NN(
 	decoder_γk = Chain(i_decoder_layer, h_decoder_layers..., o_decoder_layers)
 
 	#put all together to construct an `AttentionModel`
-	model = AttentionModel(device(encoder), device(decoder_t),device(decoder_temperature), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs , h_representation, it)))),use_tanh)
+	model = AttentionModel(device(encoder), device(decoder_t),device(decoder_temperature), device(decoder_γk), device(decoder_γq), rng, sampling_t, sampling_θ, 1.0, h_representation, 1,h3_representations, repeated, device(Zygote.bufferfrom(device(zeros(Float32, bs* h_representation, it)))),use_tanh)
 	return model
 end
 

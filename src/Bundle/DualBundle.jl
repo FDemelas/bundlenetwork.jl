@@ -32,15 +32,19 @@ function create_DQP(B::DualBundle, t::Float64)
 		linear_part = @expression(model, LinearAlgebra.dot(α, θ))
 		if B.sign
 			@variable(model, λ[1:size(B.z[:,1],1)] >= 0)
-			@constraint(model, non_negativity,  1 / t * (g * θ + λ) >= -zS(B))
+			rhs_value =  -zS(B)
+			@constraint(model, non_negativity[i=1:size(B.G,1)],  1 / t * (g[i] * θ[1] + λ[i]) >= rhs_value[i])
+			B.model.obj_dict[:non_negativity] = non_negativity
 			@objective(model, Min, (1 / 2) * quadratic_part .+ 1 / t * linear_part + LinearAlgebra.dot(λ,zS(B)))
 		else
 			@objective(model, Min, (1 / 2) * quadratic_part .+ 1 / t * linear_part)
 		end
 	else
 		if B.sign
+			rhs_value =  -zS(B)
 			@variable(model, λ[1:size(B.z[:,1],1)] >= 0)
-			@constraint(model, non_negativity, zS(B) + 1 / t * (g * θ + λ) >= 0)
+			@constraint(model, non_negativity[i=1:size(B.G,1)],  1 / t * (g[i,:]' * θ + λ[i]) >= rhs_value[i])
+			B.model.obj_dict[:non_negativity] = non_negativity
 			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ, g * θ) + 1 / t * LinearAlgebra.dot(α, θ)  + LinearAlgebra.dot(λ,zS(B)))
 		else
 			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ, g * θ) + 1 / t * LinearAlgebra.dot(α, θ))
@@ -84,18 +88,30 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 			θ_tmp = @variable(B.model, upper_bound = 1, lower_bound = 0)
 			set_normalized_coefficient(B.model.obj_dict[:conv_comb], θ_tmp, 1)
 			if B.sign
-				set_normalized_coefficient(non_negativity, θ_tmp, (1/t) * B.G[:, B.li])
+				m=size(B.G,1)
+				for i in 1:m, j in 1:length(B.model.obj_dict[:θ])
+        				set_normalized_coefficient(
+           					 B.model.obj_dict[:non_negativity][i],
+            					 B.model.obj_dict[:θ][j],
+            					 (1 / B.params.t) * B.G[i, j]
+        				)
+				end
+				#set_normalized_coefficient(B.model.obj_dict[:non_negativity], θ_tmp, (1/t) * B.G[:, B.li])
 			end
 			push!(B.model.obj_dict[:θ], θ_tmp)
 		end
 		# in this case we also need to add the quadratic objective associated to the new components
 		for tmp in 1:length(B.model.obj_dict[:θ])
-			set_objective_coefficient(B.model, B.model.obj_dict[:θ][B.li], B.model.obj_dict[:θ][tmp], (1 / 2) * B.Q[B.li, tmp])
+			set_objective_coefficient(B.model, B.model.obj_dict[:θ][tmp], (1 / 2) * B.Q[B.li, tmp])
 		end
 	end
 	if t_change || s_change
 		if s_change && B.sign
-			set_normalized_rhs(non_negativity, -zS(B))
+			rhs_value = -Float64.(zS(B))
+			m=size(B.G,1)
+			for i in 1:m
+				set_normalized_rhs(B.model.obj_dict[:non_negativity][i], rhs_value[i])
+			end
 		end
 		# if we change the t-parameter or the stabilization point (and so also the linearization errors)), then we need to rewrite the linear part in the objective function for all the variables
 		set_objective_coefficient(B.model, B.model.obj_dict[:θ], 1 / B.params.t * B.α[1:B.size])
@@ -375,6 +391,7 @@ function solve!(B::DualBundle, ϕ::AbstractConcaveFunction; t_strat::abstract_t_
 		t0 = time()
 		# compute the objective value and sub-gradient in the new trial-point
 		obj, g = value_gradient(ϕ, z) # to optimize
+		g =  g
 		append!(times["ϕ"], (time() - t0))
 
 		t0 = time()

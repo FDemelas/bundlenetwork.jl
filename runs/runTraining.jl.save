@@ -134,16 +134,8 @@ function main(args)
 		help = "If true add a component to the bundle only if it was not visited a point with the same sub-gradient. Otherwhise not add the component, but update the associated values."
 		"--scheduling_ss"
                 arg_type = Int64
-                default = 100
+                default = 10
                 help = ""
-		 "--h3"
-                arg_type = Bool
-                default = false
-                help = "If true use only one hidden representation instead of 3"
-		 "--use_tanh"
-                arg_type = Bool
-                default = false
-                help = "If true use only one hidden representation instead of 3"
 	end
 
 	# take the input parameters and construct a Dictionary
@@ -176,8 +168,6 @@ function main(args)
 	sampling_θ = parsed_args["sampling_gamma"]
 	sampling_t = parsed_args["sampling_t"]
 	act= contains(folder,"GA") ? relu : identity
-        h3 = parsed_args["h3"]
-        use_tanh = parsed_args["use_tanh"]
 
 	reduced_components = parsed_args["reduced_components"]
 	distribution_function = use_softmax ? softmax : (BundleNetworks.sparsemax)
@@ -186,7 +176,7 @@ function main(args)
 	format = split(directory[1], ".")[end]
 
 	factory = bgr ? BundleNetworks.AttentionModelFactory() : BundleNetworks.AttentionModelFactory()
-	global nn = BundleNetworks.create_NN(factory; h_representation, h_act, sampling_θ,sampling_t, h3_representations=h3,use_tanh)
+	global nn = BundleNetworks.create_NN(factory; h_representation, h_act, sampling_θ,sampling_t)
 	nn.h_representation = BundleNetworks.h_representation(nn)
 	BundleNetworks.reset!(nn, batch_size)
 	use_gpu = true
@@ -194,7 +184,6 @@ function main(args)
 	dataset = []
 	gold = Dict()
 	println(format)
-	
 	if format == "dat"
 		tmp_idx = 0
 		for f in directory[1:(mti+mvi)]
@@ -280,7 +269,7 @@ function main(args)
 		"BatchVersion_bs_" * string(batch_size) * "_seed"*string(seed)*"_" * string(a_b) * "_" * string(split(folder, "/")[end-1]) * "_" * string(lr) * "_" * string(decay) * "_" * string(cn) * "_" * string(mti) * "_" * string(mvi) * "_" * string(seed) * "_" * string(maxIt) *
 		"_" * string(maxEp) * "_" * string(soft_updates) * "_" *
 		string(h_representation) * "_" * string(sampling_θ) * string(sampling_t)* "_" * string(h_act) * "_" * string(use_softmax) * "_" * string(gamma) * "_" * string(lambda) * "_" * string(delta) * "_" * string(distribution_function) * "_" * string(bgr) * "_" *
-		string(incremental)*"_rc"*string(reduced_components)*"_ss"*string(scheduling_ss)*"_h3"*string(h3)*"_usetanh"*string(use_tanh)
+		string(incremental)*"_rc"*string(reduced_components)*"_ss"*string(scheduling_ss)
 	sN = sum([1 for j in readdir("resLogs") if contains(j, res_folder)]; init = 0.0)
 	res_folder = "resLogs/" * res_folder * "_" * string(sN + 1)
 	mkdir(res_folder)
@@ -316,7 +305,7 @@ function main(args)
 				BundleNetworks.reinitialize_Bundle!(B)
 				mv = 0.0
 				B.maxIt = incremental ? min(2 * it * maxIt / maxEp, maxIt) : maxIt
-				r_f = (batch_size > 1 || a_b ? sum(BundleNetworks.numberSP(f) for f in ϕ) : BundleNetworks.numberSP(ϕ)) * maxIt / (last - first + 1)
+				r_f = (batch_size > 1 || a_b ? sum( (contains(folder,"GA") ? f.inst.I : sizeE(f.inst)) for f in ϕ ) : contains(folder,"GA") ? ϕ.inst.I : sizeE(ϕ.inst) ) * maxIt / (last - first + 1)
 				vv, grads = Flux.withgradient((m) -> .- BundleNetworks.bundle_execution(B, ϕ, m; soft_updates = soft_updates, λ = lambda, γ = gamma, δ = delta, distribution_function, verbose = 0,inference=false,act) / r_f, nn)
 				vv = -vv
 
@@ -327,11 +316,11 @@ function main(args)
 				if batch_size == 1 && !a_b
 					append!(ls, mv)
 					append!(vs, maximum(B.obj) * ϕ.rescaling_factor)
-					append!(gs, BundleNetworks.sign(ϕ)*gap(maximum(B.obj) * ϕ.rescaling_factor, gold[idx]))
+					append!(gs, gap(maximum(B.obj) * ϕ.rescaling_factor, gold[idx]))
 				else
 					append!(ls, mv)
 					append!(vs, mean(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
-					append!(gs, mean([BundleNetworks.sign(ϕ[j])*gap(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
+					append!(gs, mean([gap(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
 				end
 				#				nn = B.nn
 				first += batch_size
@@ -379,7 +368,8 @@ function main(args)
 
 				BundleNetworks.reinitialize_Bundle!(B)
 				t0 = time()
-				r_f = (batch_size > 1 || a_b ? sum(BundleNetworks.numberSP(f) for f in ϕ) : BundleNetworks.numberSP(ϕ)) * maxIt / (last - first + 1)
+				#r_f = (batch_size > 1 || a_b ? sum(sizeE(f.inst) for f in ϕ) : sizeE(ϕ.inst)) * maxIt / (last - first + 1)
+				 r_f = (batch_size > 1 || a_b ? sum( (contains(folder,"GA") ? f.inst.I : sizeE(f.inst)) for f in ϕ) : contains(folder,"GA") ? ϕ.inst.I : sizeE(ϕ.inst)) * maxIt / (last - first + 1)
 				val = BundleNetworks.bundle_execution(B, ϕ, nn_val; soft_updates = soft_updates, λ = lambda, γ = gamma, δ = delta, distribution_function, verbose = 0,inference=false,act) / r_f
 				
 				time_val = time() - t0
@@ -387,14 +377,14 @@ function main(args)
 
 				if batch_size == 1 && !a_b
 					append!(vs_v, maximum(B.obj) * ϕ.rescaling_factor)
-					append!(gs_v, BundleNetworks.sign(ϕ)*gap(maximum(B.obj) * ϕ.rescaling_factor, gold[idx]))
+					append!(gs_v, gap(maximum(B.obj) * ϕ.rescaling_factor, gold[idx]))
 					append!(vs_v_tI, maximum(B.obj[ 1:min(maxIt, maxItVal)]))
-					append!(gs_v_tI, sign(ϕ)*gap(maximum(B.obj[1:min(maxIt, maxItVal)]) * ϕ.rescaling_factor, gold[idx]))
+					append!(gs_v_tI, gap(maximum(B.obj[1:min(maxIt, maxItVal)]) * ϕ.rescaling_factor, gold[idx]))
 				else
 					append!(vs_v, mean(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
-					append!(gs_v, mean([BundleNetworks.sign(ϕ[j])*gap(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
+					append!(gs_v, mean([gap(maximum(B.obj[j, :]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
 					append!(vs_v_tI, mean(maximum(B.obj[j, 1:min(maxIt, maxItVal)]) * ϕ[j].rescaling_factor for j in eachindex(idx)))
-					append!(gs_v_tI, mean([BundleNetworks.sign(ϕ[j])*gap(maximum(B.obj[j, 1:min(maxIt, maxItVal)]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
+					append!(gs_v_tI, mean([gap(maximum(B.obj[j, 1:min(maxIt, maxItVal)]) * ϕ[j].rescaling_factor, gold[idx[j]]) for j in eachindex(idx)]))
 					first += batch_size
 					last += batch_size
 					last = min(last, mvi)
@@ -442,6 +432,12 @@ function main(args)
 
 		end
 	end
+
+	BundleNetworks.reset!(nn, 1)
+	BundleNetworks.reset!(nn_best, 1)
+
+
+
 	nn = cpu(nn)
 	nn_best = cpu(nn_best)
 
