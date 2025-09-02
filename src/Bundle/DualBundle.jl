@@ -42,7 +42,7 @@ function create_DQP(B::DualBundle, t::Float64)
 	else
 		if B.sign
 			rhs_value =  -zS(B)
-			@variable(model, λ[1:size(B.z[:,1],1)] >= 0)
+			@variable(model, λ[1:size(B.z,1)] >= 0)
 			@constraint(model, non_negativity[i=1:size(B.G,1)],  1 / t * (g[i,:]' * θ + λ[i]) >= rhs_value[i])
 			B.model.obj_dict[:non_negativity] = non_negativity
 			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ, g * θ) + 1 / t * LinearAlgebra.dot(α, θ)  + LinearAlgebra.dot(λ,zS(B)))
@@ -87,7 +87,9 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 		for _ in 1:(size_Bundle(B)-length(B.model.obj_dict[:θ]))
 			θ_tmp = @variable(B.model, upper_bound = 1, lower_bound = 0)
 			set_normalized_coefficient(B.model.obj_dict[:conv_comb], θ_tmp, 1)
-			if B.sign
+			push!(B.model.obj_dict[:θ], θ_tmp)
+		end
+		if B.sign
 				m=size(B.G,1)
 				for i in 1:m, j in 1:length(B.model.obj_dict[:θ])
         				set_normalized_coefficient(
@@ -96,14 +98,7 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
             					 (1 / B.params.t) * B.G[i, j]
         				)
 				end
-				#set_normalized_coefficient(B.model.obj_dict[:non_negativity], θ_tmp, (1/t) * B.G[:, B.li])
 			end
-			push!(B.model.obj_dict[:θ], θ_tmp)
-		end
-		# in this case we also need to add the quadratic objective associated to the new components
-		for tmp in 1:length(B.model.obj_dict[:θ])
-			set_objective_coefficient(B.model, B.model.obj_dict[:θ][tmp], (1 / 2) * B.Q[B.li, tmp])
-		end
 	end
 	if t_change || s_change
 		if s_change && B.sign
@@ -113,11 +108,11 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 				set_normalized_rhs(B.model.obj_dict[:non_negativity][i], rhs_value[i])
 			end
 		end
-		# if we change the t-parameter or the stabilization point (and so also the linearization errors)), then we need to rewrite the linear part in the objective function for all the variables
-		set_objective_coefficient(B.model, B.model.obj_dict[:θ], 1 / B.params.t * B.α[1:B.size])
+	end
+	if B.sign
+		set_objective_function(B.model, (1 / 2) * LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ],  B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ])  + LinearAlgebra.dot(B.model.obj_dict[:λ],zS(B)))
 	else
-		#otherwhise we just need to change the objective value in the linear part for the last inserted component
-		set_objective_coefficient(B.model, B.model.obj_dict[:θ][B.li], 1 / B.params.t * B.α[B.li])
+		set_objective_function(B.model, (1 / 2) * LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ],  B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]))
 	end
 end
 
@@ -290,9 +285,8 @@ Updates the Bundle information.
 It adds to the bundle the information associated to the stabilization point `z`, knowing that the objective value in this point is `obj` and the sub-gradient is `g`.
 """
 function update_Bundle(B::DualBundle, z, g, obj)
-	λ=value.(B.model.obj_dict[:λ])
 	# reshape the new trial point as a vector
-	z = reshape(z .+ λ, :)
+	z = reshape(z , :) 
 	# and also the associated gradient
 	g = Float32.(reshape(g, :))
 
@@ -368,7 +362,7 @@ end
 Computes the new trial point by moving from the stabilization point `zS(B)` to a step `B.params.t` through the direction `B.w`.
 """
 function trial_point(B::DualBundle)
-	return zS(B) + B.params.t * B.w
+	return zS(B) + B.params.t * (B.w .+ (B.sign ? reshape(value.(B.model.obj_dict[:λ]), :) : 0.0 ))
 end
 
 """
