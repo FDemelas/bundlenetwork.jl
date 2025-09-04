@@ -118,7 +118,7 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 		end
 	end
 	if B.sign
-		set_objective_function(B.model, (1 / 2) * LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.model.obj_dict[:λ], zS(B)))
+		set_objective_function(B.model, (1 / 2) * (LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + LinearAlgebra.dot(B.model.obj_dict[:λ],B.model.obj_dict[:λ]) + 2 * LinearAlgebra.dot(B.model.obj_dict[:λ]'*B.G,B.model.obj_dict[:θ])) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.model.obj_dict[:λ], zS(B)))
 	else
 		set_objective_function(B.model, (1 / 2) * LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]))
 	end
