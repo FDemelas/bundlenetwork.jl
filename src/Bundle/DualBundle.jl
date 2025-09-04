@@ -43,9 +43,9 @@ function create_DQP(B::DualBundle, t::Float64)
 			rhs_value = -zS(B)
 			@variable(model, λ[1:size(B.z, 1)] >= 0)
 			@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i, :]' * θ + λ[i]) >= rhs_value[i])
-			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ, g * θ) + 1 / t * LinearAlgebra.dot(α, θ) + 1 / t * LinearAlgebra.dot(λ, zS(B)))
+			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ + λ, g * θ + λ) + 1 / t * LinearAlgebra.dot(α, θ) + 1 / t * LinearAlgebra.dot(λ, zS(B)))
 		else
-			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ, g * θ) + 1 / t * LinearAlgebra.dot(α, θ))
+			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ + λ , g * θ + λ) + 1 / t * LinearAlgebra.dot(α, θ))
 		end
 	end
 
