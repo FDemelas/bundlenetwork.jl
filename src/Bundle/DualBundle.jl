@@ -27,27 +27,25 @@ function create_DQP(B::DualBundle, t::Float64)
 	# Define the objective function as sum of the linear and the quadratic part
 	# Note that the regularization parameter `t` is considered as `1/t` in the linear part (instead of `t` in the quadratic part)
 	# as this allows faster re-optimization
-	if size(θ)[1] == 1
-		quadratic_part = @expression(model, LinearAlgebra.dot(g .* θ, g .* θ))
-		linear_part = @expression(model, LinearAlgebra.dot(α, θ))
-		if B.sign
-			@variable(model, λ[1:size(B.z[:, 1], 1)] >= 0)
-			rhs_value = -zS(B)
-			@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i] * θ[1] + λ[i]) >= rhs_value[i])
-			@objective(model, Min, (1 / 2) * quadratic_part .+ 1 / t * linear_part + 1 / t * LinearAlgebra.dot(λ, zS(B)))
-		else
-			@objective(model, Min, (1 / 2) * quadratic_part .+ 1 / t * linear_part)
-		end
-	else
-		if B.sign
-			rhs_value = -zS(B)
-			@variable(model, λ[1:size(B.z, 1)] >= 0)
-			@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i, :]' * θ + λ[i]) >= rhs_value[i])
-			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ + λ, g * θ + λ) + 1 / t * LinearAlgebra.dot(α, θ) + 1 / t * LinearAlgebra.dot(λ, zS(B)))
-		else
-			@objective(model, Min, (1 / 2) * LinearAlgebra.dot(g * θ + λ , g * θ + λ) + 1 / t * LinearAlgebra.dot(α, θ))
-		end
+	if B.sign
+		@variable(model, λ[1:size(B.z[:, 1], 1)] >= 0)
+		rhs_value = -zS(B)
+		@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i] * θ[1] + λ[i]) >= rhs_value[i])
 	end
+	quadratic_part = B.sign ? @expression(model, LinearAlgebra.dot(g * θ + λ, g * θ + λ)) : @expression(model, LinearAlgebra.dot(α, θ))
+	linear_part = B.sign ? @expression(model, LinearAlgebra.dot(α, θ) + LinearAlgebra.dot(λ, zS(B))) : @expression(model, LinearAlgebra.dot(α, θ))
+
+	@objective(model, Min, (1 / 2) * quadratic_part .+ 1 / t * linear_part)
+	model.obj_dict = B.sign ? Dict(
+		:θ => θ,                         # your simplex vars
+		:quadratic_part => quadratic_part,         # fixed quadratic part
+		:linear_part => linear_part,     # placeholder for updates
+		:λ => λ,
+	) : Dict(
+		:θ => θ,                         # your simplex vars
+		:quadratic_part => quadratic_part,         # fixed quadratic part
+		:linear_part => linear_part,     # placeholder for updates
+	)
 
 
 
@@ -83,45 +81,81 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 		# if we add new components to the bundle, then we have to add the associated variable to the Dual Master Problem
 		# and add them to the simplex constraint
 		for _ in 1:(size_Bundle(B)-length(B.model.obj_dict[:θ]))
+			# add a new variable to the bundle
 			θ_tmp = @variable(B.model, upper_bound = 1, lower_bound = 0)
-			set_normalized_coefficient(B.model.obj_dict[:conv_comb], θ_tmp, 1)
+			# add the variable to the constrain assuring that θ is in the simplex
+			set_normalized_coefficient(JuMP.constraint_by_name(B.model, "conv_comb"), θ_tmp, 1)
+			# Add the correspondent terms to the objective function
+			# Update the quadratic part
+			for (idx, θ) in enumerate(B.model.obj_dict[:θ])
+				set_objective_coefficient(B.model, θ, θ_tmp, 1 / 2 * B.Q[idx, B.li])
+			end
+			# add the dependence of the variable with respect to itself
+			set_objective_coefficient(B.model, θ_tmp, θ_tmp, 1 / 2 * B.Q[B.li, B.li])
+			# Update the linear part
+			set_objective_coefficient(B.model, θ_tmp, 1 / (B.params.t) * B.α[B.li])
+			if B.sign
+				# if we are considering non-negative multipliers 
+				# we have to add the variable to each non-negativity constraint
+				for i in 1:size(B.G, 1)
+					set_normalized_coefficient(
+						JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
+						θ_tmp,
+						(B.params.t) * B.G[i, B.li],
+					)
+				end
+				# and update the objective function accordingly
+				for (idx, λ) in enumerate(B.model.obj_dict[:λ])
+					set_objective_coefficient(B.model, λ, θ_tmp, B.G[idx, B.li])
+				end
+			end
+			# add the variable to the dictionary
 			push!(B.model.obj_dict[:θ], θ_tmp)
 		end
 	end
-	if B.sign
-		m = size(B.G, 1)
-		for i in 1:m, j in 1:length(B.model.obj_dict[:θ])
-			set_normalized_coefficient(
-				B.model.obj_dict[:non_negativity][i],
-				B.model.obj_dict[:θ][j],
-				(B.params.t) * B.G[i, j],
-			)
-		end
-	end
-	if t_change || s_change
-		if s_change && B.sign
+	# if the stabilization point has changed
+	if s_change
+		# Update the linear part of the objective function
+		set_objective_coefficient(B.model, B.model.obj_dict[:θ], 1 / B.params.t * B.α)
+		# change the right hand side of the non negativity constraints
+		if B.sign
 			rhs_value = -Float64.(zS(B))
-			m = size(B.G, 1)
-			for i in 1:m
-				set_normalized_rhs(B.model.obj_dict[:non_negativity][i], rhs_value[i])
+			for i in 1:size(B.G, 1)
+				set_normalized_rhs(JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"), rhs_value[i])
 			end
 		end
-		if B.sign && t_change
+	end
+	# if the t parameter or the stabilization point has changed
+	if t_change
+		# Update the linear part of the objective function
+		set_objective_coefficient(B.model, B.model.obj_dict[:θ], 1 / B.params.t * B.α)
+		if B.sign
 			m = size(B.G, 1)
 			for i in 1:m
 				set_normalized_coefficient(
-					B.model.obj_dict[:non_negativity][i],
+					JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
 					B.model.obj_dict[:λ][i],
-					(B.params.t)
+					(B.params.t),
 				)
+				for j in eachindex(B.model.obj_dict[:θ])
+					set_normalized_coefficient(
+						JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
+						B.model.obj_dict[:θ][j],
+						(B.params.t) * B.G[i, j],
+					)
+				end
 			end
 		end
 	end
-	if B.sign
-		set_objective_function(B.model, (1 / 2) * (LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + LinearAlgebra.dot(B.model.obj_dict[:λ],B.model.obj_dict[:λ]) + 2 * LinearAlgebra.dot(B.model.obj_dict[:λ]'*B.G,B.model.obj_dict[:θ])) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.model.obj_dict[:λ], zS(B)))
-	else
-		set_objective_function(B.model, (1 / 2) * LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]))
-	end
+	#if B.sign
+	#	set_objective_function(
+	#		B.model,
+	#		(1 / 2) * (LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + LinearAlgebra.dot(B.model.obj_dict[:λ], B.model.obj_dict[:λ]) + 2 * LinearAlgebra.dot(B.model.obj_dict[:λ]' * B.G, B.model.obj_dict[:θ])) +
+	#		1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.model.obj_dict[:λ], zS(B)),
+	#	)
+	#else
+	#	set_objective_function(B.model, (1 / 2) * LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]))
+	#end
 end
 
 """
@@ -138,14 +172,12 @@ function gS(B::DualBundle)
 	return B.G[:, B.s]
 end
 
-
 """
 Returns the stabilization point.
 """
 function zS(B::DualBundle)
 	return B.z[:, B.s]
 end
-
 
 """
 Returns the objective function associated to the stabilization point.
