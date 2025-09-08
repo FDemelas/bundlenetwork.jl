@@ -5,9 +5,8 @@ It is suggested to use this function only in the initialization and then conside
 function create_DQP(B::DualBundle, t::Float64)
 	# Create the (empty) model and assign Gurobi as Optimizer
 	model = Model(Gurobi.Optimizer)
-	set_optimizer_attribute(model, "NonConvex", 0)
-	set_optimizer_attribute(model, "FeasibilityTol", 0.01)
-	set_optimizer_attribute(model, "MIPGap", 0.01)
+	set_attribute(model, "NonConvex", 2)
+	
 	#set_time_limit_sec(model, 1.0)
 	# Use only one Thread for the resolution
 	#set_attribute(model, "Threads", 1)
