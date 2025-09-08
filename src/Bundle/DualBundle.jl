@@ -5,12 +5,14 @@ It is suggested to use this function only in the initialization and then conside
 function create_DQP(B::DualBundle, t::Float64)
 	# Create the (empty) model and assign Gurobi as Optimizer
 	model = Model(Gurobi.Optimizer)
-	set_optimizer_attribute(model, "NonConvex", 2)
-	set_time_limit_sec(model, 1.0)
+	set_optimizer_attribute(model, "NonConvex", 0)
+	set_optimizer_attribute(model, "FeasibilityTol", 0.01)
+	set_optimizer_attribute(model, "MIPGap", 0.01)
+	#set_time_limit_sec(model, 1.0)
 	# Use only one Thread for the resolution
-	set_attribute(model, "Threads", 1)
+	#set_attribute(model, "Threads", 1)
 	# Force to use the Primal Method (as it allows better re-optimization)
-	set_attribute(model, "Method", 0)
+	#set_attribute(model, "Method", 0)
 
 	# Define the objective values for the quadratic part
 	g = 0 < B.params.max_β_size < Inf ? B.G[:, 1:B.size] : B.G
@@ -33,23 +35,16 @@ function create_DQP(B::DualBundle, t::Float64)
 		rhs_value = -zS(B)
 		@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i] * θ[1] + λ[i]) >= rhs_value[i])
 	end
-	quadratic_part = B.sign ? @expression(model, LinearAlgebra.dot(g * θ + λ, g * θ + λ)) : @expression(model, LinearAlgebra.dot(α, θ))
+	quadratic_part = B.sign ? @expression(model, LinearAlgebra.dot(g * θ + λ, g * θ + λ)) : @expression(model, LinearAlgebra.dot(g * θ , g * θ ))
 	linear_part = B.sign ? @expression(model, LinearAlgebra.dot(α, θ) + LinearAlgebra.dot(λ, zS(B))) : @expression(model, LinearAlgebra.dot(α, θ))
 
 	@objective(model, Min, (1 / 2) * quadratic_part .+ 1 / t * linear_part)
 	model.obj_dict = B.sign ? Dict(
 		:θ => θ,                         # your simplex vars
-		:quadratic_part => quadratic_part,         # fixed quadratic part
-		:linear_part => linear_part,     # placeholder for updates
 		:λ => λ,
 	) : Dict(
 		:θ => θ,                         # your simplex vars
-		:quadratic_part => quadratic_part,         # fixed quadratic part
-		:linear_part => linear_part,     # placeholder for updates
 	)
-
-
-
 	# the model should not provide output in the standarrd output
 	set_silent(model)
 	return model
@@ -89,7 +84,7 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 			# Add the correspondent terms to the objective function
 			# Update the quadratic part
 			for (idx, θ) in enumerate(B.model.obj_dict[:θ])
-				set_objective_coefficient(B.model, θ, θ_tmp, 1 / 2 * B.Q[idx, B.li])
+				set_objective_coefficient(B.model, θ, θ_tmp, 2 / 2 * B.Q[idx, B.li])
 			end
 			# add the dependence of the variable with respect to itself
 			set_objective_coefficient(B.model, θ_tmp, θ_tmp, 1 / 2 * B.Q[B.li, B.li])
@@ -325,7 +320,7 @@ function update_Bundle(B::DualBundle, z, g, obj)
 	already_exists = false
 	for j in 1:B.size
 		#check if the new gradient already exists in the gradient matrix
-		if (sum(abs.(B.G[:, j] - g)) < 1.0e-8)
+		if (sum(abs.(B.G[:, j] - g)) < 1.0e-3)
 			already_exists = true
 			# if it already exists we does not need to add it, 
 			# we can just update the associated linearization error, the objective value and the new point
