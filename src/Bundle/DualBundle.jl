@@ -5,7 +5,7 @@ It is suggested to use this function only in the initialization and then conside
 function create_DQP(B::DualBundle, t::Float64)
 	# Create the (empty) model and assign Gurobi as Optimizer
 	model = Model(Gurobi.Optimizer)
-	set_optimizer_attribute(model, "NonConvex", 2)
+	#set_optimizer_attribute(model, "NonConvex", 2)
 	# Use only one Thread for the resolution
 	set_attribute(model, "Threads", 1)
 	# Force to use the Primal Method (as it allows better re-optimization)
@@ -147,15 +147,6 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 			end
 		end
 	end
-	#if B.sign
-	#	set_objective_function(
-	#		B.model,
-	#		(1 / 2) * (LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + LinearAlgebra.dot(B.model.obj_dict[:λ], B.model.obj_dict[:λ]) + 2 * LinearAlgebra.dot(B.model.obj_dict[:λ]' * B.G, B.model.obj_dict[:θ])) +
-	#		1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.model.obj_dict[:λ], zS(B)),
-	#	)
-	#else
-	#	set_objective_function(B.model, (1 / 2) * LinearAlgebra.dot(B.Q * B.model.obj_dict[:θ], B.model.obj_dict[:θ]) + 1 / B.params.t * LinearAlgebra.dot(B.α, B.model.obj_dict[:θ]))
-	#end
 end
 
 """
