@@ -5,13 +5,12 @@ It is suggested to use this function only in the initialization and then conside
 function create_DQP(B::DualBundle, t::Float64)
 	# Create the (empty) model and assign Gurobi as Optimizer
 	model = Model(Gurobi.Optimizer)
-	set_attribute(model, "NonConvex", 2)
-	
+
 	set_time_limit_sec(model, 1.0)
 	# Use only one Thread for the resolution
-	#set_attribute(model, "Threads", 1)
+	set_attribute(model, "Threads", 1)
 	# Force to use the Primal Method (as it allows better re-optimization)
-	#set_attribute(model, "Method", 0)
+	set_attribute(model, "Method", 0)
 
 	# Define the objective values for the quadratic part
 	g = 0 < B.params.max_β_size < Inf ? B.G[:, 1:B.size] : B.G
@@ -34,7 +33,7 @@ function create_DQP(B::DualBundle, t::Float64)
 		rhs_value = -zS(B)
 		@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i] * θ[1] + λ[i]) >= rhs_value[i])
 	end
-	quadratic_part = B.sign ? @expression(model, LinearAlgebra.dot(g * θ + λ, g * θ + λ)) : @expression(model, LinearAlgebra.dot(g * θ , g * θ ))
+	quadratic_part = B.sign ? @expression(model, LinearAlgebra.dot(g * θ + λ, g * θ + λ)) : @expression(model, LinearAlgebra.dot(g * θ, g * θ))
 	linear_part = B.sign ? @expression(model, LinearAlgebra.dot(α, θ) + LinearAlgebra.dot(λ, zS(B))) : @expression(model, LinearAlgebra.dot(α, θ))
 
 	@objective(model, Min, (1 / 2) * quadratic_part .+ 1 / t * linear_part)
@@ -75,38 +74,36 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 	if !(length(B.model.obj_dict[:θ]) == B.size)
 		# if we add new components to the bundle, then we have to add the associated variable to the Dual Master Problem
 		# and add them to the simplex constraint
-		for _ in 1:(size_Bundle(B)-length(B.model.obj_dict[:θ]))
-			# add a new variable to the bundle
-			θ_tmp = @variable(B.model, upper_bound = 1, lower_bound = 0)
-			# add the variable to the constrain assuring that θ is in the simplex
-			set_normalized_coefficient(JuMP.constraint_by_name(B.model, "conv_comb"), θ_tmp, 1)
-			# Add the correspondent terms to the objective function
-			# Update the quadratic part
-			for (idx, θ) in enumerate(B.model.obj_dict[:θ])
-				set_objective_coefficient(B.model, θ, θ_tmp, 2 / 2 * B.Q[idx, B.li])
-			end
-			# add the dependence of the variable with respect to itself
-			set_objective_coefficient(B.model, θ_tmp, θ_tmp, 1 / 2 * B.Q[B.li, B.li])
-			# Update the linear part
-			set_objective_coefficient(B.model, θ_tmp, 1 / (B.params.t) * B.α[B.li])
-			if B.sign
-				# if we are considering non-negative multipliers 
-				# we have to add the variable to each non-negativity constraint
-				for i in 1:size(B.G, 1)
-					set_normalized_coefficient(
-						JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
-						θ_tmp,
-						(B.params.t) * B.G[i, B.li],
-					)
-				end
-				# and update the objective function accordingly
-				for (idx, λ) in enumerate(B.model.obj_dict[:λ])
-					set_objective_coefficient(B.model, λ, θ_tmp, 2 * B.G[idx, B.li])
-				end
-			end
-			# add the variable to the dictionary
-			push!(B.model.obj_dict[:θ], θ_tmp)
+		# add a new variable to the bundle
+		θ_tmp = @variable(B.model, upper_bound = 1, lower_bound = 0)
+		# add the variable to the constrain assuring that θ is in the simplex
+		set_normalized_coefficient(JuMP.constraint_by_name(B.model, "conv_comb"), θ_tmp, 1)
+		# Add the correspondent terms to the objective function
+		# Update the quadratic part
+		for (idx, θ) in enumerate(B.model.obj_dict[:θ])
+			set_objective_coefficient(B.model, θ, θ_tmp, 2 / 2 * B.Q[idx, B.li])
 		end
+		# add the dependence of the variable with respect to itself
+		set_objective_coefficient(B.model, θ_tmp, θ_tmp, 1 / 2 * B.Q[B.li, B.li])
+		# Update the linear part
+		set_objective_coefficient(B.model, θ_tmp, 1 / (B.params.t) * B.α[B.li])
+		if B.sign
+			# if we are considering non-negative multipliers 
+			# we have to add the variable to each non-negativity constraint
+			for i in 1:size(B.G, 1)
+				set_normalized_coefficient(
+					JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
+					θ_tmp,
+					(B.params.t) * B.G[i, B.li],
+				)
+			end
+			# and update the objective function accordingly
+			for (idx, λ) in enumerate(B.model.obj_dict[:λ])
+				set_objective_coefficient(B.model, λ, θ_tmp, 2/2 * B.G[idx, B.li])
+			end
+		end
+		# add the variable to the dictionary
+		push!(B.model.obj_dict[:θ], θ_tmp)
 	end
 	# if the stabilization point has changed
 	if s_change
@@ -117,7 +114,7 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 			rhs_value = -Float64.(zS(B))
 			for i in 1:size(B.G, 1)
 				set_normalized_rhs(JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"), rhs_value[i])
-				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * rhs_value[i])
+				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], -1 / B.params.t * rhs_value[i])
 			end
 		end
 	end
@@ -141,9 +138,9 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 					)
 				end
 			end
-			rhs_value = -Float64.(zS(B))
+			zs = Float64.(zS(B))
 			for i in 1:size(B.G, 1)
-				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * rhs_value[i])
+				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * zs[i])
 			end
 		end
 	end
