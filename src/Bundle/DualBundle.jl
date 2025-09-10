@@ -5,10 +5,11 @@ It is suggested to use this function only in the initialization and then conside
 function create_DQP(B::DualBundle, t::Float64)
 	# Create the (empty) model and assign Gurobi as Optimizer
 	model = Model(Gurobi.Optimizer)
+	#set_attribute(model, "NonConvex", 0)
 
 	set_time_limit_sec(model, 1.0)
 	# Use only one Thread for the resolution
-	set_attribute(model, "Threads", 1)
+	#et_attribute(model, "Threads", 1)
 	# Force to use the Primal Method (as it allows better re-optimization)
 	set_attribute(model, "Method", 0)
 
@@ -30,8 +31,8 @@ function create_DQP(B::DualBundle, t::Float64)
 	# as this allows faster re-optimization
 	if B.sign
 		@variable(model, λ[1:size(B.z[:, 1], 1)] >= 0)
-		rhs_value = -zS(B)
-		@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i] * θ[1] + λ[i]) >= rhs_value[i])
+		zs = zS(B)
+		@constraint(model, non_negativity[i = 1:size(B.G, 1)], t * (g[i] * θ[1] + λ[i]) >= -zs[i])
 	end
 	quadratic_part = B.sign ? @expression(model, LinearAlgebra.dot(g * θ + λ, g * θ + λ)) : @expression(model, LinearAlgebra.dot(g * θ, g * θ))
 	linear_part = B.sign ? @expression(model, LinearAlgebra.dot(α, θ) + LinearAlgebra.dot(λ, zS(B))) : @expression(model, LinearAlgebra.dot(α, θ))
@@ -40,8 +41,11 @@ function create_DQP(B::DualBundle, t::Float64)
 	model.obj_dict = B.sign ? Dict(
 		:θ => θ,                         # your simplex vars
 		:λ => λ,
+		:non_negativity => non_negativity,
+		:conv_comb => conv_comb
 	) : Dict(
 		:θ => θ,                         # your simplex vars
+		:conv_comb => conv_comb
 	)
 	# the model should not provide output in the standarrd output
 	set_silent(model)
@@ -77,11 +81,11 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 		# add a new variable to the bundle
 		θ_tmp = @variable(B.model, upper_bound = 1, lower_bound = 0)
 		# add the variable to the constrain assuring that θ is in the simplex
-		set_normalized_coefficient(JuMP.constraint_by_name(B.model, "conv_comb"), θ_tmp, 1)
+		set_normalized_coefficient(B.model.obj_dict[:conv_comb], θ_tmp, 1)
 		# Add the correspondent terms to the objective function
 		# Update the quadratic part
 		for (idx, θ) in enumerate(B.model.obj_dict[:θ])
-			set_objective_coefficient(B.model, θ, θ_tmp, 2 / 2 * B.Q[idx, B.li])
+			set_objective_coefficient(B.model, θ, θ_tmp, B.Q[idx, B.li])
 		end
 		# add the dependence of the variable with respect to itself
 		set_objective_coefficient(B.model, θ_tmp, θ_tmp, 1 / 2 * B.Q[B.li, B.li])
@@ -92,14 +96,14 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 			# we have to add the variable to each non-negativity constraint
 			for i in 1:size(B.G, 1)
 				set_normalized_coefficient(
-					JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
+					B.model.obj_dict[:non_negativity][i],
 					θ_tmp,
 					(B.params.t) * B.G[i, B.li],
 				)
 			end
 			# and update the objective function accordingly
 			for (idx, λ) in enumerate(B.model.obj_dict[:λ])
-				set_objective_coefficient(B.model, λ, θ_tmp, 2/2 * B.G[idx, B.li])
+				set_objective_coefficient(B.model, λ, θ_tmp, B.G[idx, B.li])
 			end
 		end
 		# add the variable to the dictionary
@@ -111,10 +115,10 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 		set_objective_coefficient(B.model, B.model.obj_dict[:θ], 1 / B.params.t * B.α)
 		# change the right hand side of the non negativity constraints
 		if B.sign
-			rhs_value = -Float64.(zS(B))
+			zs = Float64.(zS(B))
 			for i in 1:size(B.G, 1)
-				set_normalized_rhs(JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"), rhs_value[i])
-				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], -1 / B.params.t * rhs_value[i])
+				set_normalized_rhs(B.model.obj_dict[:non_negativity][i], -zs[i])
+				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * zs[i])
 			end
 		end
 	end
@@ -124,23 +128,21 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 		set_objective_coefficient(B.model, B.model.obj_dict[:θ], 1 / B.params.t * B.α)
 		if B.sign
 			m = size(B.G, 1)
+			zs = Float64.(zS(B))
 			for i in 1:m
+				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * zs[i])
 				set_normalized_coefficient(
-					JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
+					B.model.obj_dict[:non_negativity][i],
 					B.model.obj_dict[:λ][i],
 					(B.params.t),
 				)
 				for j in eachindex(B.model.obj_dict[:θ])
 					set_normalized_coefficient(
-						JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"),
+						B.model.obj_dict[:non_negativity][i],
 						B.model.obj_dict[:θ][j],
 						(B.params.t) * B.G[i, j],
 					)
 				end
-			end
-			zs = Float64.(zS(B))
-			for i in 1:size(B.G, 1)
-				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * zs[i])
 			end
 		end
 	end
