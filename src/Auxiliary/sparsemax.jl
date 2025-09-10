@@ -7,6 +7,9 @@ Presented in:
 André F. T. Martins, Ramón Fernandez Astudillo
 """
 function sparsemax(γi; dims=1)
+	# translate by the maximum for numerical stability
+	m = maximum(γi;dims)
+	γi = γi .- m 
 	# sorted input in a decreasing order w.r.t. the dimension `dims`
 	z = sort(γi; dims, rev = true)
 	# compute the cumulative sum of the elements before (not strictly) the current component w.r.t. the dimension `dims`
@@ -14,7 +17,7 @@ function sparsemax(γi; dims=1)
 	# collect the range w.r.t. the dimension `dims`. In pratice provide the row or columns index of the associated component depending to `dims`
 	rng = device(dims == 2 ? repeat(collect(1:size(z, 2))', size(z, 1)) : repeat(collect(1:size(z, 1))', size(z, 2))')
 	# By `dims` provide a matrix of boolean with true in the associated component if k⋅zₖ + 1 >  ∑ᵏᵢ zᵢ
-	is_gt = ((rng .- 1) .* z .+ 1 .> cs .- z )
+	is_gt = (rng .* z .+ 1 .> cs )
 	# just for numerical stability the real operation is  (rng .* z .+ 1 .> cs )
 
 	# the maximum index satisfying the previous property
@@ -29,6 +32,9 @@ end
 Backward pass for the sparsemax function.
 """
 function ChainRulesCore.rrule(::typeof(sparsemax), γi; dims=1)
+	# translate by the maximum for numerical stability
+	m = maximum(γi;dims)
+	γi = γi .- m 
 	# sorted input in a decreasing order w.r.t. the dimension `dims`
 	z = sort(γi; dims, rev = true)
 	# compute the cumulative sum of the elements before (not strictly) the current component w.r.t. the dimension `dims`
@@ -36,7 +42,7 @@ function ChainRulesCore.rrule(::typeof(sparsemax), γi; dims=1)
 	# collect the range w.r.t. the dimension `dims`. In pratice provide the row or columns index of the associated component depending to `dims`
 	rng = device(dims == 2 ? repeat(collect(1:size(z, 2))', size(z, 1)) : repeat(collect(1:size(z, 1))', size(z, 2))')
 	# By `dims` provide a matrix of boolean with true in the associated component if k⋅zₖ + 1 >  ∑ᵏᵢ zᵢ
-	is_gt = ((rng .- 1) .* z .+ 1 .> cs .- z )
+	is_gt = (rng .* z .+ 1 .> cs )
 	# just for numerical stability the real operation is  (rng .* z .+ 1 .> cs )
 	
 	# the maximum index satisfying the previous property
