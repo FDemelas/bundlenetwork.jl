@@ -8,8 +8,7 @@ André F. T. Martins, Ramón Fernandez Astudillo
 """
 function sparsemax(γi; dims=1)
 	# translate by the maximum for numerical stability
-	m = maximum(γi;dims)
-	γi = γi .- m 
+	γi .-= maximum(γi;dims) 
 	# sorted input in a decreasing order w.r.t. the dimension `dims`
 	z = sort(γi; dims, rev = true)
 	# compute the cumulative sum of the elements before (not strictly) the current component w.r.t. the dimension `dims`
@@ -33,8 +32,7 @@ Backward pass for the sparsemax function.
 """
 function ChainRulesCore.rrule(::typeof(sparsemax), γi; dims=1)
 	# translate by the maximum for numerical stability
-	m = maximum(γi;dims)
-	γi = γi .- m 
+	γi .-= maximum(γi;dims) 
 	# sorted input in a decreasing order w.r.t. the dimension `dims`
 	z = sort(γi; dims, rev = true)
 	# compute the cumulative sum of the elements before (not strictly) the current component w.r.t. the dimension `dims`
