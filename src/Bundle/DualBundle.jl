@@ -7,7 +7,7 @@ function create_DQP(B::DualBundle, t::Float64)
 	model = Model(Gurobi.Optimizer)
 	set_attribute(model, "NonConvex", 2)
 	
-	#set_time_limit_sec(model, 1.0)
+	set_time_limit_sec(model, 1.0)
 	# Use only one Thread for the resolution
 	#set_attribute(model, "Threads", 1)
 	# Force to use the Primal Method (as it allows better re-optimization)
@@ -101,7 +101,7 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 				end
 				# and update the objective function accordingly
 				for (idx, λ) in enumerate(B.model.obj_dict[:λ])
-					set_objective_coefficient(B.model, λ, θ_tmp, B.G[idx, B.li])
+					set_objective_coefficient(B.model, λ, θ_tmp, 2 * B.G[idx, B.li])
 				end
 			end
 			# add the variable to the dictionary
@@ -117,6 +117,7 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 			rhs_value = -Float64.(zS(B))
 			for i in 1:size(B.G, 1)
 				set_normalized_rhs(JuMP.constraint_by_name(B.model, "non_negativity[" * string(i) * "]"), rhs_value[i])
+				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * rhs_value[i])
 			end
 		end
 	end
@@ -139,6 +140,10 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 						(B.params.t) * B.G[i, j],
 					)
 				end
+			end
+			rhs_value = -Float64.(zS(B))
+			for i in 1:size(B.G, 1)
+				set_objective_coefficient(B.model, B.model.obj_dict[:λ][i], 1 / B.params.t * rhs_value[i])
 			end
 		end
 	end
