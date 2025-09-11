@@ -48,7 +48,7 @@ function initializeBundle(bt::VanillaBundleFactory,ϕ::AbstractConcaveFunction, 
 		B.obj = zeros(Float32, B.params.max_β_size)
 		B.obj[1] = obj
 		B.Q = zeros(Float32, (B.params.max_β_size, B.params.max_β_size))
-		B.Q[1, 1] = g'g
+		B.Q[1, 1] = g'g +  + 1.0e-5
 	else
 		B.α = [0]
 		B.z = reshape(z, (length(z), 1))

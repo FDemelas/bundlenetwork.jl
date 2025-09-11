@@ -5,7 +5,7 @@ It is suggested to use this function only in the initialization and then conside
 function create_DQP(B::DualBundle, t::Float64)
 	# Create the (empty) model and assign Gurobi as Optimizer
 	model = Model(Gurobi.Optimizer)
-	#set_attribute(model, "NonConvex", 0)
+	set_attribute(model, "NonConvex", 2)
 
 	set_time_limit_sec(model, 1.0)
 	# Use only one Thread for the resolution
@@ -85,10 +85,12 @@ function update_DQP!(B::DualBundle, t_change = true, s_change = true)
 		# Add the correspondent terms to the objective function
 		# Update the quadratic part
 		for (idx, θ) in enumerate(B.model.obj_dict[:θ])
-			set_objective_coefficient(B.model, θ, θ_tmp, B.Q[idx, B.li])
+			set_objective_coefficient(B.model, θ, θ_tmp, B.Q[idx, B.li]) 
+			# each non-dyagonal entry appears two times so 2/2 return to one 
 		end
 		# add the dependence of the variable with respect to itself
 		set_objective_coefficient(B.model, θ_tmp, θ_tmp, 1 / 2 * B.Q[B.li, B.li])
+		# meanwhile the dyagonal component appears only once
 		# Update the linear part
 		set_objective_coefficient(B.model, θ_tmp, 1 / (B.params.t) * B.α[B.li])
 		if B.sign
@@ -358,7 +360,7 @@ function update_Bundle(B::DualBundle, z, g, obj)
 			# upated the matrix Q=G'G
 			q = B.G[:, 1:B.size]' * g
 			B.Q[1:i-1, i] = q
-			B.Q[1, 1:i-1] = q
+			B.Q[i, 1:i-1] = q
 			B.Q[i, i] = g'g
 		else
 			# upated the matrix Q=G'G
@@ -366,7 +368,9 @@ function update_Bundle(B::DualBundle, z, g, obj)
 			B.z = hcat(B.z, z)
 			q = B.G' * g
 			B.G = hcat(B.G, g)
-			B.Q = vcat(hcat(B.Q, q), vcat(q, g'g)')
+			new_diag = dot(g, g) + 1.0e-5
+			B.Q = [B.Q     q;
+       		q'  new_diag]
 			push!(B.obj, obj)
 			α = linearization_error(B, size_Bundle(B) + 1)
 			push!(B.α, α)
