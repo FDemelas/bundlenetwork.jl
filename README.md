@@ -1,19 +1,17 @@
-# Example Workflows
+# Neural Network-Guided Bundle Methods
 
-## Quick Start
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://yourusername.github.io/BundleNetworks.jl/stable)
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://yourusername.github.io/BundleNetworks.jl/dev)
+[![Build Status](https://github.com/yourusername/BundleNetworks.jl/workflows/CI/badge.svg)](https://github.com/yourusername/BundleNetworks.jl/actions)
 
-Minimal example to train and test:
-```bash
-# Train
-julia train_batch.jl --lr 0.001 --mti 50 --mvi 10 --seed 42 \
-  --maxItBack 30 --maxEP 50 --data ./data/small_dataset/
+A Julia implementation of learned optimization using neural networks to guide bundle methods for solving non-smooth convex optimization problems.
 
-# Test
-julia test.jl --data ./data/small_dataset/ \
-  --model ./resLogs/BatchVersion_bs_1_seed42_.../ \
-  --dataset ./resLogs/BatchVersion_bs_1_seed42_.../
-```
+## Documentation
 
-## Reproducing Paper Results
+📚 **[Read the full documentation](https://yourusername.github.io/BundleNetworks.jl/stable/)**
 
-[Add specific commands for reproducing published results]
+## Overview
+
+This project implements a machine learning approach to accelerate bundle methods...
+
+[rest of your README]
