@@ -1,11 +1,33 @@
 image: julia:1.9
 
+variables:
+  JULIA_DEPOT_PATH: "$CI_PROJECT_DIR/.julia"
+
+# Cache Julia packages to speed up builds
+cache:
+  paths:
+    - .julia/
+
 pages:
   stage: deploy
+  timeout: 30m  # Set explicit timeout
   script:
-    - julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+    # Install system dependencies if needed
+    - apt-get update -qq && apt-get install -y git
+    
+    # Develop the package
+    - julia --project=docs/ -e '
+        using Pkg;
+        Pkg.develop(PackageSpec(path=pwd()));
+        Pkg.instantiate();
+        '
+    
+    # Build documentation
     - julia --project=docs/ docs/make.jl
+    
+    # Move to public folder for GitLab Pages
     - mv docs/build public
+    
   artifacts:
     paths:
       - public
