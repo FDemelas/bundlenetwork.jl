@@ -3,9 +3,7 @@ using Documenter
 makedocs(
     sitename = "BundleNetworks Documentation",
     format = Documenter.HTML(
-        prettyurls = false,  # Set to false for GitLab Pages
-        canonical = "https://depot.lipn.univ-paris13.fr/demelas/bundlenetwork.jl",
-        assets = String["assets/custom.css"],
+        prettyurls = false,  # Important for GitLab Pages!
         edit_link = "main",
     ),
     pages = [
@@ -19,18 +17,13 @@ makedocs(
         ],
         "Manual" => [
             "Architecture" => "manual/architecture.md",
-            "Bundle Methods" => "manual/bundle_methods.md",
-            "Data Formats" => "manual/data_formats.md",
         ],
         "API Reference" => [
             "Training Functions" => "api/training.md",
-            "Testing Functions" => "api/testing.md",
-            "Utilities" => "api/utilities.md",
         ],
         "Examples" => "examples.md",
     ],
-    repo = Documenter.Remotes.GitLab("demelas", "bundlenetwork.jl"),
-    authors = "Francesco Demelas <your.email@example.com>",
+    authors = "Francesco Demelas",
 )
 
-# Remove deploydocs for GitLab - CI handles deployment
+# NO deploydocs() for GitLab Pages - CI handles it automatically
