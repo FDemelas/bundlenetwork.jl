@@ -1,4 +1,5 @@
 using Documenter
+using BundleNetworks 
 
 makedocs(
     sitename = "BundleNetworks Documentation",
