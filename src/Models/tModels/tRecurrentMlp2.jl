@@ -49,20 +49,6 @@ Prefer this architecture when:
 - You want more modeling capacity
 - You have sufficient data to train the additional MLP
 
-# Example
-```julia
-rng = MersenneTwister(42)
-encoder = LSTM(34 => 256)  # Produces 2*128 = 256 for μ and σ²
-decoder = Chain(Dense(128 => 512, gelu), Dense(512 => 1, softplus))
-model = RnnTModelSampleInside(
-    [encoder, decoder],
-    rng,
-    true,  # sampling enabled
-    [],
-    NothingDeviation(),
-    true   # training mode
-)
-```
 
 # See Also
 - `RnnTModel`: Simpler variant without post-sampling transformation
@@ -212,7 +198,7 @@ Output: vector of dimension 2*h_representation
 
 ## 3. Variance Stabilization (if sample=true)
 Successive transformations to ensure σ² > 0 and stable:
-```julia
+```
 σ² = 2 - softplus(2 - σ²)        # Upper bound
 σ² = -6 + softplus(σ² + 6)       # Lower bound  
 σ² = exp(σ²)                      # Convert to positive
@@ -257,16 +243,6 @@ The MLP transformation layer allows the model to:
 This is particularly useful when the optimal deviation strategy is not
 a simple linear function of the latent state.
 
-# Example
-```julia
-# Forward pass
-ϕ = create_features(bundle, model)
-t_pred = model(ϕ, bundle)
-
-# With explicit epsilon
-ϵ = randn(rng, Float32, 1)
-t_pred = model(ϕ, bundle, ϵ)
-```
 
 # Note on Gradients
 Gradients propagate through all steps thanks to automatic differentiation,
@@ -443,35 +419,6 @@ The two-stage architecture provides:
 The encoder learns to compress temporal information into a latent representation,
 while the decoder learns how to transform that representation into an effective
 deviation value.
-
-# Example Usage
-
-```julia
-# Default configuration
-factory = RnnTModelSampleInsidefactory()
-model = create_NN(factory)
-# Architecture: LSTM(34→256) then MLP(128→512→256→1)
-
-# Custom configuration with GRU
-model = create_NN(
-    factory,
-    recurrent_layer = GRU,
-    h_decoder = [1024, 512, 256],
-    h_representation = 256,
-    h_act = gelu,
-    seed = 42,
-    norm = true
-)
-# Architecture: GRU(34→512) then MLP(256→1024→512→256→1)
-
-# Minimal configuration
-model = create_NN(
-    factory,
-    h_decoder = [256],  # Single hidden layer
-    h_representation = 64
-)
-# Architecture: LSTM(34→128) then MLP(64→256→1)
-```
 
 # Hyperparameter Guidelines
 

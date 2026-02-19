@@ -26,21 +26,6 @@ The model uses an encoder-decoder architecture:
 5. Applies deviation according to chosen strategy
 6. Constrains t to interval [t_min, t_max]
 
-# Example
-```julia
-# Create model with sampling
-rng = MersenneTwister(42)
-model_chain = Chain(LSTM(34 => 128), Dense(128 => 2))
-rnn_model = RnnTModel(
-    model_chain, 
-    rng, 
-    true,  # sampling enabled
-    [],    # ϵs empty at start
-    NothingDeviation(),  # no special deviation
-    true   # training mode
-)
-```
-
 # See Also
 - `RnnTModelSampleInside`: Variant with post-sampling transformation
 - `AbstractDeviation`: For different deviation strategies
@@ -91,11 +76,6 @@ Creates the feature vector from a DualBundle for an RnnTModel.
 This function wraps `features_vector_i` and reshapes the result to match
 the format expected by the model (batch_size = 1).
 
-# Example
-```julia
-features = create_features(bundle, model)
-t_pred = model(features, bundle)
-```
 """
 function create_features(B::DualBundle, _::RnnTModel)
 	# Extract features from current iteration
@@ -353,16 +333,6 @@ The backward pass is handled automatically by Flux/Zygote through automatic
 differentiation. The reparameterization trick enables gradient propagation
 through the sampling operation.
 
-# Example
-```julia
-# Forward pass
-ϕ = create_features(bundle, model)
-t_pred = model(ϕ, bundle)
-
-# With explicit epsilon (for reproducibility)
-ϵ = randn(rng, Float32, 1)
-t_pred = model(ϕ, bundle, ϵ)
-```
 """
 function (m::RnnTModel)(ϕ, B, ϵ = randn(B.nn.rng, Float32, 1))
 	# Pass through neural network
@@ -508,40 +478,6 @@ Output [μ, σ²]
 - **gelu**: Modern choice, good performance
 - **tanh**: Classic, bounded output
 
-# Example Usage
-
-```julia
-# Default configuration
-factory = RnnTModelfactory()
-model = create_NN(factory)
-
-# Custom LSTM configuration
-model = create_NN(
-    factory,
-    recurrent_layer = LSTM,
-    h_decoder = [1024, 512, 256],
-    h_representation = 256,
-    h_act = gelu,
-    seed = 42,
-    norm = true
-)
-
-# GRU instead of LSTM
-model = create_NN(
-    factory,
-    recurrent_layer = GRU,
-    h_decoder = [256, 128],
-    h_representation = 64
-)
-
-# Minimal configuration
-model = create_NN(
-    factory,
-    h_decoder = [256],
-    h_representation = 64,
-    norm = false
-)
-```
 
 # Implementation Notes
 - Returned model has `sample=true` by default (variational sampling)

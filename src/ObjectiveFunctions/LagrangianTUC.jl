@@ -100,31 +100,6 @@ L(z*) ≤ optimal_primal_value
 
 Solving via subgradient methods tightens this bound.
 
-# Example Usage
-```julia
-# Load unit commitment instance
-using Instances
-inst = TUC(
-    I = 10,          # 10 generators
-    T = 24,          # 24-hour horizon
-    D = demand_profile,  # Hourly demand
-    # ... other parameters
-)
-
-# Create Lagrangian function
-lagrangian = constructFunction(inst, rescaling_factor=1000.0)
-
-# Evaluate at zero prices (no coordination)
-z = zeros(Float32, 24)
-bound = lagrangian(z)
-
-# Compute subgradient
-obj, grad = value_gradient(lagrangian, z)
-
-# Subgradient ascent (maximize lower bound)
-learning_rate = 0.1
-z += learning_rate * grad
-```
 
 # Economic Interpretation
 The dual variables z[t] can be interpreted as:
@@ -205,30 +180,6 @@ The `solve_SP` function from Instances package:
   - Depends on state space size and transitions
 - **Space**: O(I × T) for generation schedules
 
-# Example
-```julia
-# Create Lagrangian for 10 units, 24-hour horizon
-inst = TUC(I=10, T=24, D=demand_24h)
-lagrangian = constructFunction(inst, 100.0)
-
-# Zero prices (uncoupled units)
-z_zero = zeros(Float32, 24)
-bound_zero = lagrangian(z_zero)
-
-# Market-clearing prices
-z_market = [30.0, 35.0, 40.0, ...]  # /MWh for each hour
-bound_market = lagrangian(z_market)
-
-# Optimal prices (from subgradient method)
-z_opt = optimize_prices(lagrangian)
-bound_opt = lagrangian(z_opt)
-
-println("Uncoupled bound: ", bound_zero)
-println("Market bound: ", bound_market)
-println("Optimal bound: ", bound_opt)
-# bound_opt ≥ bound_market ≥ bound_zero (tighter bounds)
-```
-
 # Modified Unit Costs
 For each unit i at time t with price z[t]:
 ```
@@ -298,111 +249,6 @@ Used to normalize Lagrangian values for numerical stability:
 **Large systems** (I, T > 100): 1000.0 - 10000.0
 
 Choose to keep L(z) values in range [0.1, 10000] for stable gradients.
-
-# Example - Basic Usage
-```julia
-using Instances
-
-# Create 5-unit, 24-hour UC problem
-inst = TUC(
-    I = 5,                      # 5 generators
-    T = 24,                     # 24-hour horizon
-    D = [100, 120, 140, ...],  # Hourly demand (MW)
-    # ... unit parameters
-)
-
-# Create Lagrangian
-lagrangian = constructFunction(inst, rescaling_factor=500.0)
-
-# Verify dimensions
-@assert sizeInputSpace(lagrangian) == 24  # T time periods
-@assert numberSP(lagrangian) == 5          # I units
-```
-
-# Example - Standard UC Instance
-```julia
-# Load from file
-inst = load_UC_instance("data/uc_10unit_24h.dat")
-lagrangian = constructFunction(inst, 1000.0)
-
-println("System size:")
-println("  Units: $(inst.I)")
-println("  Horizon: $(inst.T) hours")
-println("  Peak demand: $(maximum(inst.D)) MW")
-```
-
-# Example - Complete Optimization Workflow
-```julia
-# Create instance
-inst = TUC(I=10, T=24, D=demand_curve)
-lagrangian = constructFunction(inst, 1000.0)
-
-# Initialize prices (dual variables)
-T = sizeInputSpace(lagrangian)
-z = ones(Float32, T) * 50.0  # Start at 50/MWh
-
-# Subgradient optimization
-best_bound = -Inf
-for iter in 1:1000
-    # Evaluate Lagrangian and get subgradient
-    obj, grad = value_gradient(lagrangian, z)
-    
-    # Track best bound
-    best_bound = max(best_bound, obj)
-    
-    # Subgradient step with decreasing step size
-    step_size = 100.0 / sqrt(iter)
-    z += step_size * grad
-    
-    # Project prices to non-negative (if desired)
-    z = max.(z, 0.0)
-    
-    # Log progress
-    if iter % 100 == 0
-        avg_shortage = mean(grad)
-        println("Iter $iter: Bound=$obj, Avg shortage=$avg_shortage")
-    end
-end
-
-println("Best Lagrangian bound: $best_bound")
-```
-
-# Example - Price Analysis
-```julia
-lagrangian = constructFunction(inst, 1000.0)
-z_optimal = optimize_lagrangian(lagrangian)
-
-# Analyze optimal prices
-for t in 1:inst.T
-    println("Hour $t: Price = \$$(z_optimal[t])/MWh, " *
-            "Demand = $(inst.D[t]) MW")
-end
-
-# Peak hours typically have higher prices
-peak_hours = findall(inst.D .> quantile(inst.D, 0.75))
-println("Peak hour prices: ", z_optimal[peak_hours])
-```
-
-# Instance Creation Tips
-```julia
-# Define unit parameters
-unit_params = [
-    (Pmin=50, Pmax=200, startup=500, shutdown=200, ...),  # Unit 1
-    (Pmin=30, Pmax=150, startup=400, shutdown=150, ...),  # Unit 2
-    # ... more units
-]
-
-# Define demand profile (e.g., typical daily pattern)
-demand = [
-    100, 95, 90, 85, 90, 100,      # Night (low)
-    120, 140, 160, 170, 175, 180,  # Morning ramp-up
-    185, 180, 175, 180, 185, 180,  # Daytime (high)
-    170, 150, 130, 120, 110, 105   # Evening ramp-down
-]
-
-inst = TUC(I=length(unit_params), T=length(demand), D=demand, 
-           units=unit_params)
-```
 
 # See Also
 - `Instances.TUC`: Instance structure documentation
@@ -481,19 +327,6 @@ Computes gradient of loss w.r.t. prices:
 ∂loss/∂z = grad / rescaling_factor × dl
 ```
 
-# Implementation Details
-
-## Generation Aggregation
-```julia
-# p is (I × T) matrix of generation schedules
-# p[i,t] = generation of unit i at time t
-
-# Sum over units (dim 1) to get total generation at each time
-total_generation = sum(p, dims=1)'  # Shape: (T,)
-
-# Compute supply-demand mismatch
-grad = inst.D - total_generation    # Shape: (T,)
-```
 
 # Mathematical Justification
 By envelope theorem, for the Lagrangian:
@@ -526,34 +359,6 @@ This mimics electricity market dynamics where prices adjust to balance supply an
 - **Forward pass**: O(I × T²) - Solve I DP problems
 - **Backward pass**: O(I × T) - Sum generation schedules
 - **Memory**: O(I × T) - Store generation schedules
-
-# Example Usage
-```julia
-# Automatic during backpropagation
-T = 24
-z = ones(Float32, T) * 50.0  # 50/MWh initial prices
-
-# Forward and backward
-obj, pullback = ChainRulesCore.rrule(lagrangian, z)
-
-# Compute gradient (called automatically by autodiff)
-dl = 1.0
-grad_z = pullback(dl)[2]
-
-# Interpret gradient
-println("Demand-supply mismatch:")
-for t in 1:T
-    if grad_z[t] > 1.0
-        println("  Hour $t: Shortage $(grad_z[t]) MW")
-    elseif grad_z[t] < -1.0
-        println("  Hour $t: Surplus $(abs(grad_z[t])) MW")
-    end
-end
-
-# Price update based on imbalance
-step_size = 0.1
-z_new = z + step_size * grad_z
-```
 
 # Convergence Behavior
 As optimization progresses:
@@ -629,61 +434,6 @@ These represent electricity prices at each time period.
 sizeInputSpace(ϕ) == Instances.nT(ϕ.inst) == T
 ```
 
-# Example
-```julia
-# 24-hour unit commitment problem
-inst = TUC(I=10, T=24, D=demand_profile)
-lagrangian = constructFunction(inst)
-
-# Price dimension
-T = sizeInputSpace(lagrangian)
-@assert T == 24  # 24 hours
-
-# Initialize hourly prices
-z = ones(Float32, T) * 40.0  # 40/MWh for all hours
-```
-
-# Typical Horizons
-Different UC problem horizons:
-- **Real-time**: 1-4 hours (high resolution)
-- **Day-ahead**: 24-48 hours (hourly)
-- **Week-ahead**: 168 hours (7 days)
-- **Multi-week**: 336+ hours (2+ weeks)
-
-```julia
-# Day-ahead market
-T_day = 24
-z_day = zeros(Float32, T_day)
-
-# Week-ahead planning
-T_week = 168  # 24 * 7
-z_week = zeros(Float32, T_week)
-```
-
-# Memory Requirements
-```julia
-T = sizeInputSpace(lagrangian)
-
-# Float32: 4 bytes per price
-bytes = T * 4
-println("Dual variables: $T")
-println("Memory: $bytes bytes")
-```
-
-# Time Resolution
-The time period length determines resolution:
-```julia
-T = sizeInputSpace(lagrangian)
-
-# If hourly resolution
-hours = T
-println("Planning horizon: $hours hours")
-
-# If 15-minute resolution
-minutes = T * 15
-println("Planning horizon: $minutes minutes = $(minutes/60) hours")
-```
-
 # See Also
 - `Instances.nT`: Underlying function from Instances package
 - `numberSP`: Number of generators (I)
@@ -716,76 +466,6 @@ The Lagrangian decomposes into independent unit subproblems:
 numberSP(ϕ) == ϕ.inst.I
 ```
 
-# Example
-```julia
-# Power system with 10 generators
-inst = TUC(I=10, T=24, D=demand)
-lagrangian = constructFunction(inst)
-
-# Number of units
-I = numberSP(lagrangian)
-@assert I == 10
-
-println("System has $I generating units")
-println("Each solves independent UC subproblem")
-```
-
-# Parallelization Potential
-```julia
-I = numberSP(lagrangian)
-
-# Sequential (current implementation)
-for i in 1:I
-    solve_unit_subproblem(i, z)
-end
-
-# Parallel (potential optimization)
-Threads.@threads for i in 1:I
-    solve_unit_subproblem(i, z)
-end
-
-# Speedup: Up to I-fold with sufficient cores
-```
-
-# System Size Categories
-```julia
-I = numberSP(lagrangian)
-T = sizeInputSpace(lagrangian)
-
-if I < 10
-    println("Small system: $I units")
-elseif I < 100
-    println("Medium system: $I units")
-else
-    println("Large system: $I units")
-end
-
-println("Problem size: $(I*T) decision variables (unit-time pairs)")
-```
-
-# Unit Types
-Typical power system mix:
-```
-Nuclear:     2-5 units (base load)
-Coal:        5-20 units (base/intermediate)
-Gas turbine: 10-50 units (intermediate/peak)
-Hydro:       Variable (dispatchable)
-```
-
-# Computational Implications
-```julia
-I = numberSP(lagrangian)
-T = sizeInputSpace(lagrangian)
-
-# Complexity per subproblem: O(T²) (dynamic programming)
-# Total complexity: O(I × T²)
-
-complexity = I * T^2
-println("Computational complexity: O($complexity)")
-
-# Each unit independently optimizes over T time periods
-println("Each unit: $T-period optimization problem")
-```
 
 # See Also
 - `sizeInputSpace`: Number of time periods (T)

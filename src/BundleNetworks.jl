@@ -130,14 +130,20 @@ gap(a, b) = ((b - a) / b) * 100
 # shared utilities before specialized implementations)
 # =========================================================================
 
+
+# --- Neural network model interface ---
+include("Models/AbstractModel.jl")           # AbstractModel, AbstractModelFactory, AbstractTModelFactory
+
+
+# --- Hyperparameters ---
+include("HyperParameters/BundleParameters.jl") # BundleParameters struct
+
+
 # --- Abstract type hierarchy ---
 include("Bundle/AbstractBundle.jl")          # AbstractBundle, DualBundle, AbstractSoftBundle, factories
 
 # --- t-Strategy implementations ---
 include("tStrategies/tStrategy.jl")          # constant, heuristic, soft/hard/balancing long-term strategies
-
-# --- Hyperparameters ---
-include("HyperParameters/BundleParameters.jl") # BundleParameters struct
 
 # --- Objective function interface and implementations ---
 include("ObjectiveFunctions/AbstractConcave.jl")  # AbstractConcaveFunction interface
@@ -145,9 +151,6 @@ include("ObjectiveFunctions/InnerLoss.jl")        # Training loss functions
 include("ObjectiveFunctions/LagrangianMCND.jl")   # Lagrangian relaxation: Multi-Commodity Network Design
 include("ObjectiveFunctions/LagrangianGA.jl")     # Lagrangian relaxation: Generalized Assignment
 include("ObjectiveFunctions/LagrangianTUC.jl")    # Lagrangian relaxation: Time-Uncapacitated lot-sizing
-
-# --- Neural network model interface ---
-include("Models/AbstractModel.jl")           # AbstractModel, AbstractModelFactory, AbstractTModelFactory
 
 # --- Auxiliary utilities ---
 include("Auxiliary/instanceFeatures.jl")     # GNN feature extraction from MCND instances

@@ -90,26 +90,6 @@ L(z*) ≥ optimal_primal_value
 
 Solving via subgradient methods tightens this bound.
 
-# Example Usage
-```julia
-# Load MCND instance
-using Instances
-inst = load_MCND_instance("data/mcnd_network.dat")
-
-# Create Lagrangian function
-lagrangian = constructFunction(inst, rescaling_factor=100.0)
-
-# Evaluate at zero duals (LP relaxation bound)
-z = zeros(Float32, inst.K, inst.N)
-bound = lagrangian(z)
-
-# Compute subgradient
-obj, grad = value_gradient(lagrangian, z)
-
-# Subgradient ascent step
-learning_rate = 0.01
-z += learning_rate * grad
-```
 
 # Network Structure Example
 ```
@@ -189,26 +169,6 @@ The `LR` function from Instances package:
   - Dijkstra: O(E log N) per commodity
 - **Space**: O(K × E) for flow solutions
 
-# Example
-```julia
-# Create Lagrangian
-inst = load_MCND_instance("network.dat")
-lagrangian = constructFunction(inst, 50.0)
-
-# Zero duals (relaxed problem)
-K, N = inst.K, inst.N
-z_zero = zeros(Float32, K, N)
-bound_zero = lagrangian(z_zero)
-
-# Optimized duals (tighter bound)
-z_opt = optimize_duals(lagrangian)
-bound_opt = lagrangian(z_opt)
-
-println("LP bound: ", bound_zero)
-println("Lagrangian bound: ", bound_opt)
-# bound_opt ≥ bound_zero (tighter)
-```
-
 # Modified Arc Costs
 For each arc (i,j) and commodity k:
 ```
@@ -275,72 +235,6 @@ Used to normalize Lagrangian values:
 
 Choose to keep L(z) values in range [0.1, 1000] for numerical stability.
 
-# Example - Basic Usage
-```julia
-using Instances
-
-# Load problem instance
-inst = load_MCND_instance("data/mcnd_20c_50n_200e.dat")
-# 20 commodities, 50 nodes, 200 arcs
-
-# Create Lagrangian
-lagrangian = constructFunction(inst, rescaling_factor=50.0)
-
-# Verify dimensions
-@assert sizeInputSpace(lagrangian) == (inst.K, inst.N)
-@assert numberSP(lagrangian) == inst.E
-```
-
-# Example - Creating Custom Instance
-```julia
-# Define simple network
-#   1 → 2 → 3
-#   ↓       ↑
-#   4 → 5 →┘
-
-K = 2  # Two commodities
-N = 5  # Five nodes
-E = 6  # Six arcs
-
-inst = cpuInstanceMCND(
-    K = K,
-    N = N,
-    E = E,
-    # Define arcs, costs, capacities, demands...
-)
-
-lagrangian = constructFunction(inst)
-```
-
-# Example - Complete Workflow
-```julia
-# Load instance
-inst = load_MCND_instance("test_network.dat")
-lagrangian = constructFunction(inst, 100.0)
-
-# Initialize dual variables
-K, N = sizeLM(inst)
-z = zeros(Float32, K, N)
-
-# Subgradient optimization
-for iter in 1:1000
-    # Evaluate and get subgradient
-    obj, grad = value_gradient(lagrangian, z)
-    
-    # Subgradient step with decreasing step size
-    step_size = 1.0 / sqrt(iter)
-    z += step_size * grad
-    
-    # Project onto non-negative orthant (if needed)
-    # z = max.(z, 0)
-    
-    if iter % 100 == 0
-        println("Iteration $iter: Bound = $obj")
-    end
-end
-
-println("Final Lagrangian bound: ", lagrangian(z))
-```
 
 # Network Topology Functions
 The instance provides helper functions:
@@ -419,24 +313,6 @@ Computes gradient of loss w.r.t. dual variables:
 
 # Implementation Details
 
-## Flow Imbalance Computation
-```julia
-for k in 1:K
-    for i in 1:N
-        # Inflow: arcs ending at i
-        inflow = sum([x[k,ij] for ij in arcs where tail(ij) == i])
-        
-        # Outflow: arcs starting at i
-        outflow = sum([x[k,ij] for ij in arcs where head(ij) == i])
-        
-        # Demand at node i for commodity k
-        demand = b(inst, i, k)
-        
-        # Gradient component
-        grad[k,i] = inflow - outflow - demand
-    end
-end
-```
 
 ## Network Structure Functions
 - `head(inst, ij)`: Returns head node of arc ij (destination)
@@ -473,39 +349,6 @@ The computed subgradient satisfies:
   - For each of N nodes
   - Check all E arcs (can be optimized with adjacency lists)
 - **Memory**: O(K × E) - Store flow solutions
-
-# Optimization Opportunity
-Current implementation checks all arcs for each node.
-Can optimize using adjacency lists:
-```julia
-# Precompute adjacency
-incoming_arcs[i] = [ij for ij where tail(ij) == i]
-outgoing_arcs[i] = [ij for ij where head(ij) == i]
-
-# Faster computation
-inflow = sum(x[k, ij] for ij in incoming_arcs[i])
-outflow = sum(x[k, ij] for ij in outgoing_arcs[i])
-```
-
-# Example Usage
-```julia
-# Automatic during backpropagation
-z = randn(Float32, K, N)
-
-# Forward and backward
-obj, pullback = ChainRulesCore.rrule(lagrangian, z)
-
-# Compute gradient (called by autodiff)
-dl = 1.0
-grad_z = pullback(dl)[2]
-
-# Interpret gradient
-println("Max flow imbalance: ", maximum(abs.(grad_z)))
-println("Nodes with imbalance: ", count(abs.(grad_z) .> 1e-6))
-
-# Dual update
-z_new = z + learning_rate * grad_z
-```
 
 # Convergence to Optimality
 As dual optimization progresses:
@@ -592,49 +435,6 @@ for each commodity.
 sizeInputSpace(ϕ) == sizeLM(ϕ.inst) == (K, N)
 ```
 
-# Example
-```julia
-# Problem: 10 commodities, 50 nodes, 200 arcs
-inst = load_MCND_instance("mcnd_10_50_200.dat")
-lagrangian = constructFunction(inst)
-
-# Dual space dimensions
-dims = sizeInputSpace(lagrangian)
-@assert dims == (10, 50)  # (K, N)
-
-# Total dual variables
-total = prod(dims)
-@assert total == 500  # 10 × 50
-
-# Initialize dual variables
-z = zeros(Float32, dims...)  # Shape (10, 50)
-```
-
-# Memory Requirements
-```julia
-dims = sizeInputSpace(lagrangian)
-K, N = dims
-
-# Float32: 4 bytes per number
-bytes = K * N * 4
-megabytes = bytes / (1024^2)
-
-println("Dual variables: $K × $N = $(K*N)")
-println("Memory: $(megabytes) MB")
-```
-
-# Comparison with Problem Size
-```julia
-K, N = sizeInputSpace(lagrangian)  # Dual dimensions
-E = numberSP(lagrangian)            # Number of arcs
-
-println("Network structure:")
-println("  Commodities: $K")
-println("  Nodes: $N")
-println("  Arcs: $E")
-println("  Dual vars: $(K*N)")
-println("  Flow vars: $(K*E)")
-```
 
 # See Also
 - `sizeLM`: Underlying function from Instances package
@@ -673,20 +473,6 @@ The name is somewhat historical/generic. For MCND:
 
 The E arcs represent the structure of each subproblem.
 
-# Example
-```julia
-# Load instance: 10 commodities, 50 nodes, 200 arcs
-inst = load_MCND_instance("network.dat")
-lagrangian = constructFunction(inst)
-
-# Network size
-K, N = sizeInputSpace(lagrangian)  # (10, 50)
-E = numberSP(lagrangian)            # 200
-
-println("Network has $E arcs")
-println("Each of $K commodities uses these $E arcs")
-println("Total flow variables: $(K * E)")
-```
 
 # Flow Variables
 Total number of flow decision variables:
@@ -696,32 +482,6 @@ Total flow vars = K × E
 
 Each commodity has one flow variable per arc.
 
-# Network Density
-```julia
-K, N = sizeInputSpace(lagrangian)
-E = numberSP(lagrangian)
-
-# Maximum possible arcs in directed graph
-max_arcs = N * (N - 1)
-
-# Network density
-density = E / max_arcs * 100
-
-println("Network density: $(round(density, digits=2))%")
-```
-
-# Comparison Table
-```julia
-println("Problem Dimensions:")
-println("  Commodities (K): $K")
-println("  Nodes (N): $N")
-println("  Arcs (E): $E")
-println()
-println("Variable Counts:")
-println("  Dual vars: $(K * N)")
-println("  Flow vars: $(K * E)")
-println("  Total: $(K * N + K * E)")
-```
 
 # Computational Implications
 - **K commodities**: Number of shortest path problems to solve

@@ -2,7 +2,7 @@
     AttentionModelFactory <: AbstractDirectionAndTModelFactory
 
 Factory used to create an attention model that predicts both a direction 
-(via an attention mechanism) and a temporal parameter `t`.
+(via recurrence and an attention mechanism) using as a temporal parameter the iteration counter `t`.
 
 This factory is responsible for:
 - Extracting relevant features from bundles (SoftBundle or BatchedSoftBundle)
@@ -256,7 +256,7 @@ These features correspond to the last component added to the bundle.
 This dimension must match the actual number of features extracted in `create_features`.
 """
 function size_comp_features(lt::AttentionModelFactory)
-	return 15
+	return 20
 end
 
 """
@@ -271,7 +271,7 @@ Returns the dimension of the feature vector for the temporal parameter t.
 This dimension must match the actual number of temporal features extracted in `create_features`.
 """
 function size_features(lt::AttentionModelFactory)
-	return 42
+	return 16
 end
 
 
@@ -323,19 +323,6 @@ The model uses a VAE structure where:
 - **Training mode** (`sample_t=true`, `sample_γ=true`): Samples from distributions
 - **Inference mode** (`sample_t=false`, `sample_γ=false`): Uses means deterministically
 
-# Example Usage
-```julia
-# Create model
-factory = AttentionModelFactory()
-model = create_NN(factory, h_representation=256)
-
-# Initialize for a sequence
-reset!(model, batch_size=1, max_iterations=500)
-
-# Forward pass
-feat_t, feat_gamma = create_features(factory, bundle)
-t, attention_scores = model(feat_t, feat_gamma, iteration, 1:bundle.size)
-```
 """
 mutable struct AttentionModel <: AbstractModel
 	encoder::Chain
@@ -375,16 +362,6 @@ This function must be called before processing a new sequence to prevent
 the previous state from influencing predictions. The key matrix `Ks` is
 preallocated with dimensions (bs * h_representation) × it for efficiency.
 
-# Example
-```julia
-# Before processing a new sequence
-reset!(model, batch_size=4, max_iterations=1000)
-
-# Now ready for forward passes
-for i in 1:num_iterations
-    t, scores = model(feat_t, feat_gamma, i, comps)
-end
-```
 """
 function reset!(m::AttentionModel, bs::Int = 1, it::Int = 500)
 	# Reset hidden state of recurrent layers
@@ -449,7 +426,7 @@ Four decoders produce:
 
 ### Variance Stabilization
 Two successive softplus transformations ensure σ² stays in a reasonable range:
-```julia
+```
 σ² = 2 - softplus(2 - σ²)      # Upper bound
 σ² = -6 + softplus(σ² + 6)     # Lower bound
 σ² = exp(σ²)                    # Ensure positivity
@@ -472,22 +449,6 @@ The backward pass is handled automatically by Flux/Zygote's automatic
 differentiation. The reparameterization trick ensures gradients can
 flow through the sampling operation.
 
-# Example
-```julia
-# Extract features
-feat_t, feat_gamma = create_features(factory, bundle)
-
-# Forward pass
-t_pred, attention_logits = model(
-    feat_t, 
-    feat_gamma, 
-    current_iteration,
-    1:num_components
-)
-
-# Normalize attention scores
-attention_weights = softmax(attention_logits)
-```
 """
 function (m::AttentionModel)(xt, xγ, idx, comps)
 	# Concatenate temporal and component features
@@ -642,33 +603,6 @@ Split into [μ, σ²]
 - `false`: Shared latent space (parameter efficient)
 - `true`: Independent spaces for t, temp, keys, queries (more expressive)
 
-# Example Usage
-
-```julia
-# Standard configuration
-factory = AttentionModelFactory()
-model = create_NN(factory)
-
-# High-capacity configuration
-model = create_NN(
-    factory,
-    h_representation = 512,
-    h_decoder = [2048, 1024, 512],
-    h3_representations = true,
-    sampling_t = true,
-    rnn = true
-)
-
-# Lightweight configuration
-model = create_NN(
-    factory,
-    h_representation = 64,
-    h_decoder = [256],
-    rnn = false,
-    norm = true
-)
-```
-
 # Implementation Notes
 - Weights are initialized using truncated normal (mean=0, std=0.01)
 - Random seed ensures reproducible initialization
@@ -769,11 +703,6 @@ The dimension is extracted from the weight matrix of the first layer of decoder_
 This ensures consistency between the stored h_representation field and the actual
 architecture.
 
-# Example
-```julia
-model = create_NN(factory, h_representation=256)
-@assert h_representation(model) == 256
-```
 """
 function h_representation(nn::AttentionModel)
 	return Int64(size(nn.decoder_t[1].weight, 2))

@@ -31,19 +31,6 @@ All concrete subtypes of AbstractModel should implement:
 - `reset!(model, ...)`: State reset (for recurrent models)
 - Compatibility with Flux.jl for automatic differentiation
 
-# Example Usage
-```julia
-# Define a new model type
-struct MyNewModel <: AbstractTModel
-    encoder::Chain
-    decoder::Chain
-    # ... other fields
-end
-
-# The model automatically inherits from the hierarchy
-model::AbstractModel = MyNewModel(...)
-```
-
 # Design Pattern
 This hierarchy follows the "Strategy" design pattern where different
 prediction strategies can be interchanged while respecting a common interface.
@@ -96,18 +83,6 @@ AbstractTModel instances typically:
 4. Apply deviation strategies (AbstractDeviation)
 5. Constrain t to the interval [t_min, t_max]
 
-# Expected Interface
-```julia
-# Feature creation
-features = create_features(bundle, model)
-
-# Forward pass
-t = model(features, bundle)
-
-# Reset (for recurrent models)
-reset!(model)
-```
-
 # When to Use AbstractTModel
 Choose an AbstractTModel when:
 - You only want to control the time step of the optimization
@@ -123,20 +98,6 @@ Choose an AbstractTModel when:
 | Use case | Temporal control | Temporal + spatial control |
 | Features | Global state | Global + local state |
 | Training speed | Faster | Slower |
-
-# Example
-```julia
-# Create an RnnTModel
-factory = RnnTModelfactory()
-model::AbstractTModel = create_NN(factory)
-
-# Training loop
-for iteration in 1:max_iterations
-    features = create_features(bundle, model)
-    t = model(features, bundle)
-    # Use t to update optimization
-end
-```
 
 # Design Rationale
 This type separates temporal control from directional control, allowing
@@ -200,18 +161,6 @@ AbstractDirectionAndTModel instances typically:
 3. Maintain history of components (key matrix)
 4. Use variational mechanisms for regularization
 
-# Expected Interface
-```julia
-# Feature creation (two levels)
-feat_t, feat_gamma = create_features(factory, bundle)
-
-# Forward pass
-t, attention_scores = model(feat_t, feat_gamma, idx, comps)
-
-# Reset
-reset!(model, batch_size, max_iterations)
-```
-
 # When to Use AbstractDirectionAndTModel
 Choose an AbstractDirectionAndTModel when:
 - You want to control both timing AND direction
@@ -243,35 +192,6 @@ Choose an AbstractDirectionAndTModel when:
 | **Interpretability** | Medium | High (via attention) |
 | **Training time** | Fast | Slow |
 | **Data requirements** | Moderate | High |
-
-# Example
-```julia
-# Create an AttentionModel
-factory = AttentionModelFactory()
-model::AbstractDirectionAndTModel = create_NN(
-    factory,
-    h_representation = 256,
-    h3_representations = true  # Three independent latent spaces
-)
-
-# Initialize
-reset!(model, batch_size=1, max_iterations=500)
-
-# Training loop
-for iteration in 1:max_iterations
-    # Extract two-level features
-    feat_t, feat_gamma = create_features(factory, bundle)
-    
-    # Joint prediction
-    t, attention_scores = model(feat_t, feat_gamma, iteration, 1:bundle.size)
-    
-    # Apply softmax/sparsemax to get weights
-    weights = softmax(attention_scores)
-    
-    # Use t and weights to update optimization
-    update_bundle!(bundle, t, weights)
-end
-```
 
 # Design Pattern
 This abstract type implements a variant of the "Observer" pattern where the model
@@ -327,69 +247,12 @@ A factory is responsible for:
 ✓ **Testability**: Easy to mock factories for testing
 ✓ **Consistency**: Ensures models are created correctly
 
-# Expected Interface
-All concrete factories must implement:
-```julia
-# Extract features from bundle
-create_features(factory, bundle)
-
-# Feature and output dimensions
-size_features(factory)
-size_output(factory)
-
-# Create configured model
-create_NN(factory, hyperparameters...)
-```
-
-# Typical Workflow
-```julia
-# 1. Create factory
-factory = MyModelFactory()
-
-# 2. Create model with hyperparameters
-model = create_NN(
-    factory,
-    h_representation = 256,
-    seed = 42
-)
-
-# 3. Use factory to extract features
-features = create_features(factory, bundle)
-
-# 4. Forward pass on model
-output = model(features, bundle)
-```
-
 # Design Pattern
 Implements the "Factory Method Pattern" where:
 - Abstract factories define the interface
 - Concrete factories implement specific creation logic
 - Clients use the interface without knowing implementation details
 
-# Complete Example
-```julia
-# Define a new factory
-struct MyNewTModelFactory <: AbstractTModelFactory end
-
-# Implement required methods
-function create_features(factory::MyNewTModelFactory, B)
-    # Feature extraction logic
-    return features
-end
-
-function size_features(factory::MyNewTModelFactory)
-    return 42  # Number of features
-end
-
-function create_NN(factory::MyNewTModelFactory; kwargs...)
-    # Model creation logic
-    return MyNewModel(...)
-end
-
-# Usage
-factory = MyNewTModelFactory()
-model = create_NN(factory, seed=123)
-```
 
 # See Also
 - `AbstractTModelFactory`: For t-only prediction models
@@ -418,27 +281,6 @@ for this specific task.
   - Architecture: LSTM/GRU + [sampling] + MLP
   - Output: 1 value (transformed deviation)
 
-# Required Interface
-Concrete factories must implement:
-```julia
-# Dimensions
-size_features(factory)::Int      # e.g., 34
-size_output(factory)::Int        # e.g., 2 for [μ, σ²]
-
-# Feature extraction
-create_features(factory, bundle::DualBundle)  # Returns features (34×1)
-
-# Model creation
-create_NN(factory; 
-    recurrent_layer = LSTM,
-    h_decoder = [512, 256],
-    h_act = softplus,
-    h_representation = 128,
-    seed = 1,
-    norm = false
-)  # Returns AbstractTModel
-```
-
 # Typical Features (34 dimensions)
 AbstractTModelFactory instances typically extract:
 1. **Temporal** (1-6): t, norms, interactions
@@ -449,79 +291,6 @@ AbstractTModelFactory instances typically extract:
 6. **Products** (25-34): Matrix products and dot products
 
 See `features_vector_i(B::DualBundle)` for complete details.
-
-# Usage Workflow
-```julia
-# 1. Create factory
-factory = RnnTModelfactory()
-
-# 2. Check dimensions
-@assert size_features(factory) == 34
-@assert size_output(factory) == 2
-
-# 3. Create model
-model = create_NN(
-    factory,
-    recurrent_layer = LSTM,
-    h_representation = 256,
-    seed = 42
-)
-
-# 4. Training loop
-for epoch in 1:num_epochs
-    for bundle in training_data
-        # Extract features
-        features = create_features(factory, bundle)
-        
-        # Forward pass
-        t = model(features, bundle)
-        
-        # Compute loss and backprop
-        loss = compute_loss(t, target)
-        Flux.train!(loss, model, optimizer)
-    end
-end
-
-# 5. Inference
-features = create_features(factory, test_bundle)
-t_pred = model(features, test_bundle)
-```
-
-# Creating a Custom Factory
-```julia
-struct MyCustomTFactory <: AbstractTModelFactory end
-
-function size_features(::MyCustomTFactory)
-    return 50  # Custom feature count
-end
-
-function size_output(::MyCustomTFactory)
-    return 2  # [μ, σ²]
-end
-
-function create_features(factory::MyCustomTFactory, B::DualBundle)
-    # Extract custom features
-    ϕ = Float32[
-        B.params.t,
-        sum(B.w' * B.w),
-        # ... 48 more features
-    ]
-    return reshape(ϕ, (50, 1))
-end
-
-function create_NN(factory::MyCustomTFactory; kwargs...)
-    # Create custom model
-    rng = MersenneTwister(get(kwargs, :seed, 1))
-    encoder = LSTM(50 => 128)  # 50 features input
-    decoder = Chain(Dense(128 => 256, gelu), Dense(256 => 2))
-    model_chain = Chain(encoder, decoder)
-    return RnnTModel(model_chain, rng, true)
-end
-
-# Usage
-factory = MyCustomTFactory()
-model = create_NN(factory, seed=123)
-```
 
 # Naming Conventions
 - Factory: `*Modelfactory` (e.g., RnnTModelfactory)
@@ -552,42 +321,6 @@ two-level feature extraction and configuration of complex attention architecture
   - Component features: 20 dimensions (per component)
   - Architecture: LSTM + VAE + Attention (keys/queries)
   - Outputs: t (scalar) + γ (attention scores)
-
-# Required Interface
-Concrete factories must implement:
-```julia
-# Dimensions
-size_features(factory)::Int           # e.g., 16 (temporal features)
-size_comp_features(factory)::Int      # e.g., 20 (component features)
-h_representation(model)::Int          # e.g., 128 (latent dimension)
-
-# Feature extraction (two levels)
-create_features(factory, bundle::SoftBundle)
-    # Returns (feat_t, feat_gamma)
-    # feat_t: (16, 1) - temporal features
-    # feat_gamma: (20, 1) - component features
-
-create_features(factory, bundle::BatchedSoftBundle)
-    # Returns (feat_t, feat_theta)
-    # feat_t: (16, batch_size) - batched temporal features
-    # feat_theta: (20, batch_size) - batched component features
-
-# Model creation
-create_NN(factory;
-    h_act = gelu,
-    h_representation = 128,
-    h_decoder = [1024],
-    seed = 1,
-    norm = false,
-    sampling_t = false,
-    sampling_θ = true,
-    ot_act = softplus,
-    rnn = true,
-    h3_representations = false,
-    repeated = true,
-    use_tanh = false
-)  # Returns AbstractDirectionAndTModel
-```
 
 # Two-Level Feature Structure
 
@@ -629,154 +362,6 @@ Input Level 2: Component features (20)
     t        query (q)   key (k)
     
     [Attention: γ = q^T · K]
-```
-
-# Usage Workflow
-```julia
-# 1. Create factory
-factory = AttentionModelFactory()
-
-# 2. Check dimensions
-@assert size_features(factory) == 16
-@assert size_comp_features(factory) == 20
-
-# 3. Create model
-model = create_NN(
-    factory,
-    h_representation = 256,
-    h3_representations = true,  # 3 independent latent spaces
-    sampling_t = true,
-    sampling_θ = true,
-    seed = 42
-)
-
-# 4. Initialize for a sequence
-reset!(model, batch_size=1, max_iterations=500)
-
-# 5. Training loop
-for epoch in 1:num_epochs
-    for bundle in training_data
-        # Extract two-level features
-        feat_t, feat_gamma = create_features(factory, bundle)
-        
-        # Forward pass
-        t, attention_scores = model(
-            feat_t, 
-            feat_gamma, 
-            bundle.li,           # Current index
-            1:bundle.size        # Components to consider
-        )
-        
-        # Apply softmax to get weights
-        weights = softmax(attention_scores)
-        
-        # Compute loss and backprop
-        loss = compute_loss(t, weights, targets)
-        Flux.train!(loss, model, optimizer)
-    end
-    
-    # Reset between epochs
-    reset!(model)
-end
-
-# 6. Inference
-reset!(model, batch_size=1, max_iterations=100)
-for iteration in 1:100
-    feat_t, feat_gamma = create_features(factory, bundle)
-    t, scores = model(feat_t, feat_gamma, iteration, 1:bundle.size)
-    weights = sparsemax(scores)  # Or softmax
-    # Use t and weights for optimization
-end
-```
-
-# Batch Processing
-Factories support two bundle types:
-```julia
-# Single bundle (one example)
-feat_t, feat_gamma = create_features(factory, bundle::SoftBundle)
-# feat_t: (16, 1), feat_gamma: (20, 1)
-
-# Batched bundle (multiple examples)
-feat_t, feat_theta = create_features(factory, bundle::BatchedSoftBundle)
-# feat_t: (16, batch_size), feat_theta: (20, batch_size)
-```
-
-# Attention Mechanism Details
-The model maintains a **key matrix K** (stored in `model.Ks`):
-```julia
-# At each iteration i:
-# 1. Compute key k_i = decoder_γk(z_i)
-# 2. Store in K[:, i] = k_i
-# 3. Compute query q_i = decoder_γq(z_i)
-# 4. Compute scores: γ_i = q_i^T · K[:, 1:i]
-# 5. Apply softmax/sparsemax: weights = softmax(γ_i)
-```
-
-This approach allows the model to "look back" and weight all previous
-components based on their similarity to the current state.
-
-# Creating a Custom Factory
-```julia
-struct MyCustomAttentionFactory <: AbstractDirectionAndTModelFactory end
-
-function size_features(::MyCustomAttentionFactory)
-    return 20  # Custom temporal features
-end
-
-function size_comp_features(::MyCustomAttentionFactory)
-    return 30  # Custom component features
-end
-
-function create_features(
-    factory::MyCustomAttentionFactory, 
-    B::SoftBundle
-)
-    # Extract temporal features (20)
-    feat_t = Float32[
-        sum(B.t),
-        sum(B.w' * B.w),
-        # ... 18 more features
-    ]
-    
-    # Extract component features (30)
-    feat_gamma = Float32[
-        mean(B.G[:, B.li]),
-        std(B.z[:, B.li]),
-        # ... 28 more features
-    ]
-    
-    return device(feat_t), device(feat_gamma)
-end
-
-function create_NN(factory::MyCustomAttentionFactory; kwargs...)
-    # Create custom attention model
-    h_rep = get(kwargs, :h_representation, 128)
-    
-    # Encoder
-    encoder = LSTM(50 => 2*h_rep)  # 20+30=50 features
-    
-    # Decoders
-    decoder_t = Chain(Dense(h_rep => 512, gelu), Dense(512 => 1, softplus))
-    decoder_k = Chain(Dense(h_rep => 256, gelu), Dense(256 => h_rep))
-    decoder_q = Chain(Dense(h_rep => 256, gelu), Dense(256 => h_rep))
-    
-    # Create model
-    rng = MersenneTwister(get(kwargs, :seed, 1))
-    model = AttentionModel(
-        device(encoder),
-        device(decoder_t),
-        device(decoder_k),
-        device(decoder_q),
-        rng,
-        # ... other parameters
-    )
-    
-    return model
-end
-
-# Usage
-factory = MyCustomAttentionFactory()
-model = create_NN(factory, h_representation=256, seed=123)
 ```
 
 # Advantages of This Approach

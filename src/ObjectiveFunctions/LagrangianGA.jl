@@ -67,25 +67,6 @@ maximize  L(z)
 
 Provides an **upper bound** for the primal minimization problem.
 
-# Example Usage
-```julia
-# Load problem instance
-using Instances
-inst = load_instance("MCND_instance.dat")
-
-# Create Lagrangian function
-lagrangian = constructFunction(inst, rescaling_factor=100.0)
-
-# Evaluate at dual point
-z = zeros(Float32, inst.I)  # Initial dual variables
-obj_value = lagrangian(z)    # Lagrangian bound
-
-# Compute gradient (subgradient)
-obj, grad = value_gradient(lagrangian, z)
-
-# Dual ascent step
-z += 0.01 * grad
-```
 
 # Subgradient Structure
 The subgradient at z is:
@@ -132,7 +113,7 @@ L(z) = Σⱼ max { (p[:,j] - z)' x : w[:,j]' x ≤ c[j], x ∈ {0,1}ᴵ }
 ```
 
 Implemented via:
-```julia
+```
 -LR(inst, -z)[1] / rescaling_factor
 ```
 
@@ -154,7 +135,7 @@ The `LR` function from the Instances package:
 - **Space**: O(J × I) for solutions
 
 # Example
-```julia
+```
 # Create Lagrangian
 lagrangian = constructFunction(instance, 1.0)
 
@@ -218,36 +199,6 @@ Typical values:
 - Small instances (I, J < 100): 1.0 - 10.0
 - Medium instances (I, J < 1000): 10.0 - 100.0
 - Large instances (I, J > 1000): 100.0 - 1000.0
-
-# Example
-```julia
-using Instances
-
-# Load problem instance
-inst = load_GA_instance("data/mcnd_50_20.dat")
-# 50 items, 20 commodities
-
-# Create Lagrangian with scaling
-lagrangian = constructFunction(inst, rescaling_factor=50.0)
-
-# Verify dimensions
-@assert sizeInputSpace(lagrangian) == inst.I
-@assert numberSP(lagrangian) == inst.J
-```
-
-# Loading Instances
-```julia
-# From Instances package
-inst = cpuInstanceGA(
-    I = 50,           # Number of items
-    J = 20,           # Number of commodities
-    p = rand(50, 20), # Profit matrix
-    w = rand(50, 20), # Weight matrix
-    c = rand(20)      # Capacity constraints
-)
-
-lagrangian = constructFunction(inst)
-```
 
 # See Also
 - `Instances` package: Problem instance management
@@ -320,29 +271,6 @@ The subgradient is the sum of active constraints.
 
 # Implementation Details
 
-## Gradient Initialization
-```julia
-grad = ones(Float32, sizeInputSpace(ϕ))
-```
-Starts with 1 because obj starts with Σᵢ zᵢ.
-
-## Solution Accumulation
-```julia
-for j in 1:J
-    # Solve knapsack j
-    xp = solve_knapsack(I, p[:,j] - z, w[:,j], c[j])
-    x[:,j] = xp
-    
-    # Accumulate objective
-    obj += knapsack_value
-end
-```
-
-## Gradient Finalization
-```julia
-grad -= sum(x, dims=2)'  # Subtract solution sums
-```
-
 Each item i contributes to gradient based on how many times it's selected.
 
 # NoTangent Explanation
@@ -351,22 +279,6 @@ Each item i contributes to gradient based on how many times it's selected.
 - Third/Fourth `NoTangent()`: No gradient w.r.t. auxiliary arguments
 
 Only the actual input `z` receives meaningful gradients.
-
-# Example Usage
-```julia
-# This is called automatically during backpropagation
-z = randn(Float32, inst.I)
-
-# Forward and backward pass
-obj, pullback = ChainRulesCore.rrule(lagrangian, z)
-
-# Compute gradient (called automatically by autodiff)
-dl = 1.0  # Gradient from loss
-grad_z = pullback(dl)[2]  # Extract gradient w.r.t. z
-
-# Dual ascent update
-z_new = z + learning_rate * grad_z
-```
 
 # Subgradient Properties
 The computed subgradient satisfies:
@@ -469,30 +381,6 @@ Where:
 - `I`: Number of items in the problem
 - `sizeLM`: Size of Lagrange multiplier vector
 
-# Example
-```julia
-# Problem with 50 items, 20 commodities
-inst = load_instance("mcnd_50_20.dat")
-lagrangian = constructFunction(inst)
-
-# Dual space dimension
-dim = sizeInputSpace(lagrangian)
-@assert dim == 50  # One dual per item
-
-# Initialize dual variables
-z = zeros(Float32, dim)
-```
-
-# Usage
-```julia
-# Allocate dual variable vector
-dim = sizeInputSpace(lagrangian)
-z = randn(Float32, dim) * 0.1
-
-# Verify compatibility
-@assert length(z) == sizeInputSpace(lagrangian)
-```
-
 # See Also
 - `sizeLM`: Underlying function from Instances package
 - `numberSP`: Returns number of subproblems (J)
@@ -523,36 +411,6 @@ The Lagrangian decomposes into independent knapsack subproblems:
 numberSP(ϕ) == ϕ.inst.J
 ```
 
-# Example
-```julia
-# Problem with 50 items, 20 commodities
-inst = load_instance("mcnd_50_20.dat")
-lagrangian = constructFunction(inst)
-
-# Number of subproblems
-num_sp = numberSP(lagrangian)
-@assert num_sp == 20  # One per commodity
-
-# Can solve in parallel
-results = pmap(1:num_sp) do j
-    solve_knapsack_j(lagrangian, j, z)
-end
-```
-
-# Parallelization Potential
-```julia
-num_sp = numberSP(lagrangian)
-
-# Sequential (current implementation)
-for j in 1:num_sp
-    solve_subproblem(j)
-end
-
-# Parallel (potential optimization)
-Threads.@threads for j in 1:num_sp
-    solve_subproblem(j)
-end
-```
 
 # See Also
 - `sizeInputSpace`: Dimension of dual space (I)
@@ -588,19 +446,6 @@ This function computes the dual bound (which maximizes),
 but represents the primal (which minimizes).
 ```
 
-# Usage in Optimization
-```julia
-direction = sign(lagrangian)
-
-if direction == 1
-    # Maximize: gradient ascent
-    z_new = z + lr * gradient
-elseif direction == -1
-    # Minimize: gradient descent
-    z_new = z - lr * gradient
-end
-```
-
 # Duality Gap
 The Lagrangian provides bounds:
 ```
@@ -609,19 +454,6 @@ L(z) ≥ optimal_primal_value  (for any z)
 
 Optimizing z maximizes the bound, tightening it.
 
-# Example
-```julia
-lagrangian = constructFunction(inst)
-
-# Check optimization direction
-@assert sign(lagrangian) == -1  # Minimization
-
-# Dual ascent (maximize bound)
-for iter in 1:max_iterations
-    obj, grad = value_gradient(lagrangian, z)
-    z += learning_rate * grad  # Ascent for dual maximization
-end
-```
 
 # Comparison with Other Functions
 | Function Type | sign() | Objective |

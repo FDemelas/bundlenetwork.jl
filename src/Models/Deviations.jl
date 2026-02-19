@@ -16,36 +16,11 @@ AbstractDeviation
 └── NothingDeviation        # t_new = dev
 ```
 
-# Usage Pattern
-Deviations are callable structs that take two arguments:
-```julia
-deviation::AbstractDeviation
-t_new = deviation(t_current, dev_predicted)
-```
-
 # Design Rationale
 This abstraction allows models to be agnostic about how their predictions
 are applied. The same model architecture can be used with different update
 strategies by simply changing the deviation type.
 
-# Example
-```julia
-# Create a model with additive deviation
-model = RnnTModel(
-    network,
-    rng,
-    true,
-    [],
-    AdditiveDeviation(),  # Updates will be additive
-    true
-)
-
-# The model predicts a deviation
-dev = model(features, bundle)
-
-# Deviation is applied: t_new = t_old + dev
-t_new = model.deviation(bundle.params.t, dev)
-```
 
 # When to Use Each Deviation Type
 - **AdditiveDeviation**: For absolute adjustments to t
@@ -92,23 +67,6 @@ Prefer AdditiveDeviation when:
 - Commutative: deviation(deviation(t, dev1), dev2) = deviation(deviation(t, dev2), dev1)
 - Identity: deviation(t, 0) = t
 - Inverse: deviation(deviation(t, dev), -dev) = t
-
-# Example
-```julia
-deviation = AdditiveDeviation()
-
-# Initial state
-t_old = 1.0
-dev_predicted = 0.5
-
-# Apply deviation
-t_new = deviation(t_old, dev_predicted)
-# Result: t_new = 1.0 + 0.5 = 1.5
-
-# Negative deviation
-t_new = deviation(t_old, -0.3)
-# Result: t_new = 1.0 - 0.3 = 0.7
-```
 
 # Typical Training Behavior
 During training, the model typically learns to predict:
@@ -169,23 +127,6 @@ Prefer MultiplicativeDeviation when:
 - `0 < dev < 1`: Decreases t proportionally
 - `dev > 1`: Increases t proportionally
 - `dev < 0`: Changes sign of t (typically undesirable)
-
-# Example
-```julia
-deviation = MultiplicativeDeviation()
-
-# Initial state
-t_old = 2.0
-dev_predicted = 1.5
-
-# Apply deviation
-t_new = deviation(t_old, dev_predicted)
-# Result: t_new = 2.0 × 1.5 = 3.0
-
-# Decreasing deviation
-t_new = deviation(t_old, 0.5)
-# Result: t_new = 2.0 × 0.5 = 1.0
-```
 
 # Typical Training Behavior
 During training, the model typically learns to predict:
@@ -262,25 +203,6 @@ Unlike other deviations, NothingDeviation:
 - Has no notion of "relative" change
 - Makes the model responsible for absolute values
 
-# Example
-```julia
-deviation = NothingDeviation()
-
-# Initial state
-t_old = 5.0  # This value doesn't matter
-dev_predicted = 2.0
-
-# Apply deviation
-t_new = deviation(t_old, dev_predicted)
-# Result: t_new = 2.0 (t_old is ignored)
-
-# Another example
-t_old = 100.0  # Still doesn't matter
-dev_predicted = 2.0
-t_new = deviation(t_old, dev_predicted)
-# Result: t_new = 2.0 (same result regardless of t_old)
-```
-
 # Typical Training Behavior
 During training, the model learns to predict:
 - Absolute values of t appropriate for the current state
@@ -316,26 +238,6 @@ during model serialization and GPU transfer, even though it has no parameters.
 
 The first argument is conventionally named `_` (underscore) to indicate
 it is intentionally unused.
-
-# Example in Context
-```julia
-# Model with NothingDeviation predicts t directly
-model = RnnTModel(
-    network,
-    rng,
-    true,
-    [],
-    NothingDeviation(),  # Direct prediction
-    true
-)
-
-# At each step, the model predicts the absolute value of t
-features = create_features(bundle, model)
-t_predicted = model(features, bundle)  # This IS the new t value
-
-# Unlike other deviations, there's no accumulation or scaling
-# The model must learn to predict appropriate absolute values
-```
 
 # Architectural Implications
 When using NothingDeviation:

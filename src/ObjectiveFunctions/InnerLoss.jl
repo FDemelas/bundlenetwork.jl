@@ -63,56 +63,6 @@ In meta-learning, we optimize over:
 
 This struct represents the inner loss landscape that the outer loop optimizes over.
 
-# Example
-```julia
-# Create network for MNIST
-# Architecture: 784 input -> 128 hidden -> 10 output
-layers = [784, 128, 10]
-
-# Load MNIST batch
-x_batch = load_mnist_images(32)  # 32 images
-y_batch = load_mnist_labels(32)  # 32 labels
-
-# Create inner loss function
-inner_loss = constructFunction(
-    (x_batch, y_batch),
-    rescaling_factor = 100.0,
-    layers = layers
-)
-
-# Evaluate loss for given parameters
-params = initialize_parameters(layers)
-loss_value = inner_loss(params)
-
-# Compute gradient
-loss_value, grad = value_gradient(inner_loss, params)
-```
-
-# Use Case: Meta-Learning
-```julia
-# Outer loop: optimize initial parameters
-θ_init = initialize_meta_parameters()
-
-for meta_iteration in 1:num_meta_iterations
-    # Sample task (batch of MNIST data)
-    task_data = sample_mnist_batch()
-    
-    # Create inner loss for this task
-    inner_loss = constructFunction(task_data, 100.0, layers)
-    
-    # Inner loop: gradient steps on task
-    θ_task = copy(θ_init)
-    for inner_step in 1:num_inner_steps
-        loss, grad = value_gradient(inner_loss, θ_task)
-        θ_task += learning_rate * grad
-    end
-    
-    # Outer loop: update initialization based on task performance
-    meta_gradient = compute_meta_gradient(θ_init, θ_task, inner_loss)
-    θ_init += meta_learning_rate * meta_gradient
-end
-```
-
 # See Also
 - `constructFunction`: Constructor for creating InnerLoss instances
 - `prediction`: Forward pass without loss computation (inference)
@@ -155,41 +105,6 @@ For a layer with input dimension `d_in` and output dimension `d_out`:
 
 Total parameters: Σᵢ (dᵢ × dᵢ₊₁ + dᵢ₊₁)
 
-# Implementation Details
-```julia
-# For each layer i:
-# 1. Extract weight matrix W (size: layers[i] × layers[i+1])
-first_w = current_position
-last_w = first_w + prod(layers[i:i+1]) - 1
-W = reshape(params[first_w:last_w], layers[i:i+1]...)
-
-# 2. Extract bias vector b (size: layers[i+1])
-first_b = last_w + 1
-last_b = first_b + layers[i+1] - 1
-b = params[first_b:last_b]
-
-# 3. Apply layer transformation
-h = σ(W' × h + b)
-```
-
-# Example
-```julia
-# Network: 4 input -> 3 hidden -> 2 output
-layers = [4, 3, 2]
-
-# Parameters needed:
-# Layer 1: W₁ (4×3 = 12) + b₁ (3) = 15
-# Layer 2: W₂ (3×2 = 6) + b₂ (2) = 8
-# Total: 23 parameters
-
-params = randn(Float32, 23)
-
-# Create loss function
-inner_loss = constructFunction(data, 1.0, layers)
-
-# Compute loss
-loss_value = inner_loss(params)
-```
 
 # Activation Function
 Uses **sigmoid** activation for all layers:
@@ -292,38 +207,11 @@ Properties:
 - Preserves relative ordering
 - Differentiable
 
-# Example
-```julia
-# Create inner loss
-inner_loss = constructFunction(test_data, 1.0, [784, 128, 10])
-
-# Train network (simplified)
-params = train_network(inner_loss)
-
-# Inference on test batch
-probs = prediction(inner_loss, params)
-
-# Get predicted classes
-predicted_classes = argmax(probs, dims=1)
-
-# Compute accuracy
-true_classes = argmax(inner_loss.y, dims=1)
-accuracy = mean(predicted_classes .== true_classes)
-```
 
 # Batch Processing
 - Input batch: (28×28, batch_size)
 - Output: (10, batch_size) probability distributions
 - Each column sums to 1.0
-
-# Comparison with Training
-```julia
-# Training: compute loss
-loss_value = inner_loss(params)  # Scalar
-
-# Inference: get predictions
-probs = prediction(inner_loss, params)  # (10, batch_size) matrix
-```
 
 # Implementation Note
 This function should **only be used during inference**, not during training,
@@ -388,7 +276,7 @@ Performs several transformations on input data:
 
 ## Label Encoding
 Converts integer labels to one-hot vectors:
-```julia
+```
 # Input: y = [3, 7, 2, ...]  (class indices 0-9)
 # Output: y = [[0,0,0,1,0,0,0,0,0,0],
 #              [0,0,0,0,0,0,0,1,0,0],
@@ -398,14 +286,14 @@ Converts integer labels to one-hot vectors:
 
 ## Image Reshaping
 Flattens 2D images to vectors:
-```julia
+```
 # Input: x shape (28, 28, batch_size)
 # Output: x shape (784, batch_size)
 ```
 
 # Loss Function
 Uses **negative logit cross-entropy** for maximization:
-```julia
+```
 f(ŷ, y) = -Flux.logitcrossentropy(ŷ, y)
 ```
 
@@ -425,60 +313,6 @@ Automatically moves data to appropriate device (CPU/GPU):
 - `device(x)`: Moves images to current device
 - `device(y)`: Moves labels to current device
 - `cpu(layers)`: Keeps architecture spec on CPU (metadata)
-
-# Example Usage
-
-## Basic Usage
-```julia
-# Load MNIST data
-x_train, y_train = load_mnist_training(batch_size=64)
-
-# Create loss function with default architecture
-inner_loss = constructFunction(
-    (x_train, y_train),
-    rescaling_factor = 100.0
-)
-```
-
-## Custom Architecture
-```julia
-# Deeper network: 784 -> 256 -> 128 -> 10
-custom_layers = [784, 256, 128, 10]
-
-inner_loss = constructFunction(
-    data,
-    rescaling_factor = 50.0,
-    layers = custom_layers
-)
-```
-
-## Complete Training Example
-```julia
-# Prepare data
-data = load_mnist_batch(100)  # 100 samples
-
-# Create loss function
-inner_loss = constructFunction(data, 100.0, [784, 128, 10])
-
-# Initialize parameters
-param_size = sizeInputSpace(inner_loss)
-params = randn(Float32, param_size) * 0.01
-
-# Training loop
-for epoch in 1:100
-    loss, grad = value_gradient(inner_loss, params)
-    params += 0.01 * grad  # Gradient ascent (maximization)
-    
-    if epoch % 10 == 0
-        println("Epoch $epoch: Loss = $loss")
-    end
-end
-
-# Evaluate
-probs = prediction(inner_loss, params)
-accuracy = compute_accuracy(probs, data[2])
-println("Final accuracy: $accuracy")
-```
 
 # Rescaling Factor Guidelines
 The rescaling factor affects optimization dynamics:
@@ -548,56 +382,6 @@ For each layer connection i → i+1:
 - **Weights**: `layers[i] × layers[i+1]` parameters
 - **Biases**: `layers[i+1]` parameters
 - **Total**: `layers[i] × layers[i+1] + layers[i+1]`
-
-# Example
-
-## Small Network
-```julia
-layers = [784, 20, 10]
-
-# Layer 1 → 2: 784 × 20 + 20 = 15,700
-# Layer 2 → 3: 20 × 10 + 10 = 210
-# Total: 15,910 parameters
-
-inner_loss = constructFunction(data, 1.0, layers)
-param_size = sizeInputSpace(inner_loss)
-@assert param_size == 15_910
-```
-
-## Larger Network
-```julia
-layers = [784, 256, 128, 10]
-
-# Layer 1 → 2: 784 × 256 + 256 = 200,960
-# Layer 2 → 3: 256 × 128 + 128 = 32,896
-# Layer 3 → 4: 128 × 10 + 10 = 1,290
-# Total: 235,146 parameters
-
-param_size = sizeInputSpace(inner_loss)
-@assert param_size == 235_146
-```
-
-# Usage
-
-## Parameter Initialization
-```julia
-# Determine required parameter size
-param_size = sizeInputSpace(inner_loss)
-
-# Initialize parameters
-params = randn(Float32, param_size) * 0.01
-
-# Verify size
-@assert length(params) == param_size
-```
-
-## Memory Estimation
-```julia
-# Estimate memory requirements
-param_size = sizeInputSpace(inner_loss)
-memory_mb = param_size * 4 / (1024^2)  # Float32 = 4 bytes
-println("Parameters require $(memory_mb) MB")
-```
 
 # Relationship to Network Capacity
 The parameter count determines:
@@ -672,31 +456,6 @@ For neural networks, this is inefficient because:
 - CPU ↔ GPU transfers are expensive
 - Gradients are large (thousands of parameters)
 
-# Implementation
-```julia
-# Compute value and gradient using autodiff
-obj, grad = Flux.withgradient((x) -> ϕ(x), device(z))
-
-# Both results already on correct device
-return device(obj), device(grad[1])
-```
-
-# Usage
-```julia
-# Initialize parameters
-param_size = sizeInputSpace(inner_loss)
-params = randn(Float32, param_size) * 0.01
-
-# Compute loss and gradient
-loss_value, gradient = value_gradient(inner_loss, params)
-
-# Gradient ascent step (maximization)
-learning_rate = 0.01
-params += learning_rate * gradient
-
-# Gradient descent step (if minimizing)
-# params -= learning_rate * gradient
-```
 
 # Performance Considerations
 - **GPU acceleration**: Keeps computation on GPU throughout
