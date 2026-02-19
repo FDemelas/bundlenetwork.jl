@@ -1,8 +1,8 @@
 # Neural Network-Guided Bundle Methods
 
-[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://yourusername.github.io/BundleNetworks.jl/stable)
-[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://yourusername.github.io/BundleNetworks.jl/dev)
-[![Build Status](https://github.com/yourusername/BundleNetworks.jl/workflows/CI/badge.svg)](https://github.com/yourusername/BundleNetworks.jl/actions)
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://FDemelas.github.io/bundlenetwork.jl/stable)
+[![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://FDemels.github.io/bundlenetwork.jl/dev)
+[![Build Status](https://github.com/yourusername/BundleNetworks.jl/workflows/CI/badge.svg)](https://github.com/FDemelas/bundlenetwork.jl/actions)
 
 A Julia implementation of learned optimization using neural networks to guide bundle methods for solving non-smooth convex optimization problems.
 
