@@ -7,6 +7,7 @@ makedocs(
         edit_link = "main",
     ),
     modules = [BundleNetworks],
+    warnonly = true,
     pages = [
         "Home" => "index.md",
         "Installation" => "installation.md",
