@@ -6,6 +6,7 @@ makedocs(
         prettyurls = false,  # Important for GitLab Pages!
         edit_link = "main",
     ),
+    modules = [BundleNetworks],
     pages = [
         "Home" => "index.md",
         "Installation" => "installation.md",
@@ -22,6 +23,10 @@ makedocs(
             "Training Functions" => "api/training.md",
         ],
         "Examples" => "examples.md",
+	    "API Reference" => [
+  		  "Training Functions" => "api/training.md",
+    		  "Docstrings" => "api/docstrings.md",   # ← add this
+            ],
     ],
     authors = "Francesca Demelas",
 )
