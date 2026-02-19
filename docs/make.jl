@@ -13,7 +13,7 @@ makedocs(
         "Tutorials" => [
             "Batch Training" => "tutorials/batch_training.md",
             "Episodic Training" => "tutorials/episodic_training.md",
-            "Inference & Evaluation" => "tutorials/inference.md",
+            "Inference & Evaluation" => "tutorials/testing.md",
         ],
         "Manual" => [
             "Architecture" => "manual/architecture.md",
