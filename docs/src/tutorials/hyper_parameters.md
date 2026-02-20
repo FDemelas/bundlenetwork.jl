@@ -1,4 +1,4 @@
-# Hyper-Parameter Learning
+# Hyper Parameter Learning
 
 This methodology maintains the structure of the Bundle Method, particularly the resolution of the (Quadratic) Master Problem (MP).  
 It uses an ML model based on Recursion to compute, at each step, a regularization parameter used as a weight for the Euclidean distance with respect to the best point found so far in the MP.
