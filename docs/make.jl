@@ -22,4 +22,7 @@ makedocs(
     authors = "Francesca Demelas",
 )
 
-# NO deploydocs() for GitLab Pages - CI handles it automatically
+deploydocs(
+    repo = "github.com/FDemelas/bundlenetwork.jl.git",
+    devbranch = "main",
+)
