@@ -1,8 +1,2 @@
 [deps]
-BundleNetworks = "df1d299a-dead-41a4-ad39-ff935dc4a314"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-Instances = "8fca14b0-9fef-467f-921b-4df90784bd13"
-
-[sources]
-BundleNetworks = {path = "/home/francesco/github/bundlenetwork.jl"}
-Instances = {url = "https://github.com/FDemelas/Instances"}

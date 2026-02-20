@@ -1,5 +1,4 @@
 using Documenter
-using BundleNetworks 
 
 makedocs(
     sitename = "BundleNetworks Documentation",
@@ -7,8 +6,6 @@ makedocs(
         prettyurls = false,  # Important for GitLab Pages!
         edit_link = "main",
     ),
-    modules = [BundleNetworks],
-    warnonly = true,
     pages = [
         "Home" => "index.md",
         "Installation" => "installation.md",
@@ -16,7 +13,7 @@ makedocs(
         "Tutorials" => [
             "Batch Training" => "tutorials/batch_training.md",
             "Episodic Training" => "tutorials/episodic_training.md",
-            "Inference & Evaluation" => "tutorials/testing.md",
+            "Inference & Evaluation" => "tutorials/inference.md",
         ],
         "Manual" => [
             "Architecture" => "manual/architecture.md",
@@ -25,15 +22,8 @@ makedocs(
             "Training Functions" => "api/training.md",
         ],
         "Examples" => "examples.md",
-	    "API Reference" => [
-  		  "Training Functions" => "api/training.md",
-    		  "Docstrings" => "api/docstrings.md",   # ← add this
-            ],
     ],
-    authors = "Francesca Demelas",
+    authors = "Francesco Demelas",
 )
 
-deploydocs(
-    repo = "github.com/FDemelas/bundlenetwork.jl.git",
-    devbranch = "main",
-)
+# NO deploydocs() for GitLab Pages - CI handles it automatically

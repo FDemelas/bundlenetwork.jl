@@ -1,9 +1,8 @@
 # Training API Reference
 
 ## Batch Training
-```@autodocs
+```@docs
 main(args)
-Filter = t -> parentmodule(t) === BundleNetworks
 ```
 
 ### Function: `main`
