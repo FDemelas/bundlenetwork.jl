@@ -11,17 +11,13 @@ makedocs(
         "Installation" => "installation.md",
         "Quick Start" => "quickstart.md",
         "Tutorials" => [
-            "Batch Training" => "tutorials/batch_training.md",
-            "Episodic Training" => "tutorials/episodic_training.md",
-            "Inference & Evaluation" => "tutorials/inference.md",
+            "Bundle Networks" => "tutorials/bundle_networks.md",
+            "Hyper Parameters Learning" => "tutorials/hyper_parameters.md",
+            "Baselines" => "tutorials/baselines.md",
         ],
         "Manual" => [
             "Architecture" => "manual/architecture.md",
-        ],
-        "API Reference" => [
-            "Training Functions" => "api/training.md",
-        ],
-        "Examples" => "examples.md",
+        ]
     ],
     authors = "Francesco Demelas",
 )
