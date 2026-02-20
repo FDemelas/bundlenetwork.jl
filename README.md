@@ -2,7 +2,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://fdemelas.github.io/bundlenetwork.jl/dev/)
 [![Build Status](https://github.com/FDemelas/bundlenetwork.jl/workflows/Documentation/badge.svg)](https://github.com/FDemelas/bundlenetwork.jl/actions)
-[cc-by-shield]: https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg [cc-by]: https://creativecommons.org/licenses/by/4.0/
+[![CC BY 4.0][cc-by-shield]][cc-by]
 
 A Julia implementation of learned optimization using neural networks to guide bundle methods for solving non-smooth convex optimization problems.
 
