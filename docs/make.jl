@@ -11,15 +11,15 @@ makedocs(
         "Installation" => "installation.md",
         "Quick Start" => "quickstart.md",
         "Tutorials" => [
-            "Bundle Networks" => "tutorials/bundle_networks.md",
-            "Hyper Parameters Learning" => "tutorials/hyper_parameters.md",
+            "Bundle Network" => "tutorials/bundle_networks.md",
+            "Hyper-Parameter Learning" => "tutorials/hyper_parameters.md",
             "Baselines" => "tutorials/baselines.md",
         ],
         "Manual" => [
             "Architecture" => "manual/architecture.md",
-        ]
+        ],
     ],
-    authors = "Francesco Demelas",
+    authors = "Francesca Demelas",
 )
 
 # NO deploydocs() for GitLab Pages - CI handles it automatically

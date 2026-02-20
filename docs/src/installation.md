@@ -1,3 +1,4 @@
+
 # Installation
 
 ## Prerequisites
@@ -22,58 +23,22 @@ Download and run the installer from the Julia website.
 
 ## Installing BundleNetworks
 
-### Option 1: Clone from GitHub
+### Step 1: Clone from GitHub
 ```bash
-git clone https://github.com/yourusername/BundleNetworks.jl.git
-cd BundleNetworks.jl
+git clone git@github.com:FDemelas/bundlenetwork.jl.git
+cd bundlenetwork.jl
 ```
 
-### Option 2: Julia Package Manager (if registered)
+### Step 2: Julia Package Manager (if registered)
 ```julia
-using Pkg
-Pkg.add("BundleNetworks")
-```
-
-## Dependencies
-
-Install required packages:
-```julia
+# Use the package manager
 using Pkg
 
-# Core dependencies
-Pkg.add([
-    "BundleNetworks",
-    "Instances", 
-    "Flux",
-    "Zygote",
-    "LinearAlgebra",
-    "Statistics",
-])
+# Activate the project directory
+Pkg.activate(".")
 
-# Optional: GPU support
-Pkg.add("CUDA")
-
-# Utilities
-Pkg.add([
-    "JSON",
-    "BSON",
-    "ArgParse",
-    "Random",
-])
-
-# Logging and visualization
-Pkg.add([
-    "TensorBoardLogger",
-    "Logging",
-])
-
-# Training utilities
-Pkg.add([
-    "MLUtils",
-    "ParameterSchedulers",
-    "ChainRules",
-    "ChainRulesCore",
-])
+# Install dependencies
+Pkg.instantiate()
 ```
 
 ## Verifying Installation
@@ -85,7 +50,7 @@ using CUDA
 # Check CUDA availability
 CUDA.functional()  # Should return true if GPU is available
 
-# Check BundleNetworks
+# Confirm BundleNetworks loads successfully
 println("BundleNetworks loaded successfully!")
 ```
 
@@ -98,15 +63,15 @@ mkdir -p golds
 mkdir -p resLogs
 ```
 
-2. Download or generate problem instances
+2. Download or generate problem instances and place them in `./data/<your_folder>`
 
-3. Create gold solutions file (if using .dat format):
+3. Create gold solutions file in `./golds/<your_folder>`. If the directory does not exist, create it:
 ```bash
-mkdir -p golds/MCNDforTest
-# Add your gold.json file
+mkdir -p golds/<your_folder>
+# Add your gold.json file here
 ```
 
 ## Next Steps
 
-- See [Quick Start](@ref) for your first training run
-- Explore [Tutorials](@ref) for detailed examples
+- See [Quick Start](#) for your first training run
+- Explore [Tutorials](#) for detailed examples
